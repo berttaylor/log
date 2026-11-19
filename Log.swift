@@ -180,7 +180,11 @@ func freeGB() -> Double {
     return v?.volumeAvailableCapacityForImportantUsage.map { Double($0) / 1e9 } ?? .infinity
 }
 let minFreeGB = 5.0
-let library = URL.downloadsDirectory.appendingPathComponent("Log")
+/// "Log", or "Log Dev" for a development build (see build.sh). A dev build has its own
+/// recordings folder, settings and permissions, and never opens at login, so it runs
+/// happily next to the installed app.
+let name = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "Log"
+let library = URL.downloadsDirectory.appendingPathComponent(name)
 
 @MainActor
 final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
@@ -252,9 +256,9 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         add("Capture Screens (1 frame a second)", state == .idle ? #selector(toggleScreens) : nil,
             on: defaults.bool(forKey: "captureScreens"))
         add("Show Timer in Menu Bar", #selector(toggleTimer), on: defaults.bool(forKey: "showTimer"))
-        add("Open at Login", #selector(toggleLogin), on: SMAppService.mainApp.status == .enabled)
+        if name == "Log" { add("Open at Login", #selector(toggleLogin), on: SMAppService.mainApp.status == .enabled) }
         menu.addItem(.separator())
-        add("Quit Log", #selector(NSApplication.terminate), key: "q", target: NSApp)
+        add("Quit \(name)", #selector(NSApplication.terminate), key: "q", target: NSApp)
     }
 
     @objc func record(_ sender: NSMenuItem) {

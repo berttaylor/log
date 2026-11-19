@@ -1,11 +1,15 @@
 #!/bin/sh
-# Builds build/Log.app (a universal binary for Apple silicon and Intel).
-# ./build.sh dmg also packs it into build/Log.dmg for a release.
+# ./build.sh           builds build/Log Dev.app, for development
+# ./build.sh release   builds build/Log.app and build/Log.dmg, for a release
+#
+# Both are universal binaries (Apple silicon and Intel). The dev build has its own name and
+# bundle id, so it runs next to an installed Log without sharing settings or login items.
 set -e
 cd "$(dirname "$0")"
-VERSION=1.0.0
-APP=build/Log.app
-rm -rf build && mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+VERSION=1.0.1
+if [ "$1" = release ]; then NAME=Log ID=work.bertbert.log; else NAME="Log Dev" ID=work.bertbert.log.dev; fi
+APP="build/$NAME.app"
+rm -rf "$APP" build/Log.dmg && mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 for arch in arm64 x86_64; do
   swiftc -O -target "$arch-apple-macos15" Log.swift -o "build/Log-$arch"
@@ -26,8 +30,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-<key>CFBundleName</key><string>Log</string>
-<key>CFBundleIdentifier</key><string>work.bertbert.log</string>
+<key>CFBundleName</key><string>$NAME</string>
+<key>CFBundleIdentifier</key><string>$ID</string>
 <key>CFBundleExecutable</key><string>Log</string>
 <key>CFBundleIconFile</key><string>Log</string>
 <key>CFBundlePackageType</key><string>APPL</string>
@@ -41,10 +45,10 @@ PLIST
 
 # Ad-hoc signature pinned to the bundle id (not the build hash), so macOS privacy
 # permissions survive rebuilds.
-codesign --force --sign - -r='designated => identifier "work.bertbert.log"' "$APP"
+codesign --force --sign - -r="designated => identifier \"$ID\"" "$APP"
 echo "Built $APP"
 
-[ "$1" = dmg ] || exit 0
+[ "$1" = release ] || exit 0
 # Disk image: the app, a link to Applications, and the Log icon on the volume.
 mkdir build/dmg
 cp -R "$APP" build/dmg/

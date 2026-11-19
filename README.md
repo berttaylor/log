@@ -86,17 +86,19 @@ You need macOS 15 or later and the Xcode command line tools (`xcode-select --ins
 ```sh
 git clone https://github.com/berttaylor/log.git
 cd log
-./build.sh       # builds build/Log.app
-./build.sh dmg   # also builds build/Log.dmg
+./build.sh           # builds build/Log Dev.app, for development
+./build.sh release   # builds build/Log.app and build/Log.dmg
 ```
+
+The dev build is called **Log Dev**. It has its own settings, permissions and recordings folder (`~/Downloads/Log Dev/`), and it never opens at login, so you can run it next to an installed copy of Log.
 
 To try recording without the menu bar, run it from a terminal:
 
 ```sh
-build/Log.app/Contents/MacOS/Log --test 10 screens
+build/Log\ Dev.app/Contents/MacOS/Log --test 10 screens
 ```
 
-This records 10 seconds to `~/Downloads/Log/test/` and prints the folder. macOS treats the recording as coming from your terminal app, so the terminal needs the same two permissions.
+This records 10 seconds to `~/Downloads/Log Dev/test/` and prints the folder. macOS treats the recording as coming from your terminal app, so the terminal needs the same two permissions.
 
 Log uses ScreenCaptureKit for screens, system audio and the mic, and AVFoundation to write the files. Everything stays on your Mac. Log has no network code, analytics or accounts.
 
