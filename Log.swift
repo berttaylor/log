@@ -198,10 +198,6 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var warning: String?
 
     func applicationDidFinishLaunching(_ n: Notification) {
-        if !defaults.bool(forKey: "loginSet") {   // first launch: open at login (switch off in the menu)
-            try? SMAppService.mainApp.register()
-            defaults.set(true, forKey: "loginSet")
-        }
         item.menu = NSMenu()
         item.menu?.delegate = self
         item.button?.imagePosition = .imageLeading

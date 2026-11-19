@@ -65,7 +65,7 @@ Some details:
 - **Screens stay readable.** Each display is recorded at its full resolution, up to 2560 pixels wide. One frame a second is enough to follow slides, code and documents, and it keeps an hour of video small.
 - **Safe with your disk.** Log won't start with less than 5 GB free, and it stops and saves if space drops below that during a call.
 - **Safe when you quit.** Quitting, logging out or shutting down mid-call still saves everything recorded so far.
-- **Opens at login.** You can switch this off in the menu.
+- **Open at login** is off until you turn it on in the menu.
 
 ## Install
 
