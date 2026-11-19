@@ -2,6 +2,8 @@
 
 macOS menu bar app that records both sides of a call. All app code is in `Log.swift`. `build.sh` builds the app; there is no Xcode project and there are no dependencies.
 
+The competitive analysis, feature spec (M1-M11, L1-L7) and release plan are in `docs/ROADMAP.md`. Build features in its release order, and keep to its "what not to build" list.
+
 ## Dev build vs installed app
 
 The owner runs the released Log from /Applications every day while developing in this repo. The two must never collide:
