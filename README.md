@@ -25,7 +25,7 @@ Log fixes that in one place. It sits in your menu bar, and when you click **Reco
 
 The two tracks are lined up to the same start time, so you get a clean record of the whole conversation. You don't need to change settings in each app, join a bot to the call or install an audio driver.
 
-Turn on **Capture Screens** and Log also records every display you have connected, at one frame a second. If you're presenting on one screen with the call on another, you get your slides, the faces and chat of the people asking questions, and what everyone said, all on one timeline.
+Turn on **Capture Screens** (under **Settings**) and Log also records every display you have connected, at one frame a second. If you're presenting on one screen with the call on another, you get your slides, the faces and chat of the people asking questions, and what everyone said, all on one timeline.
 
 ## Good for
 
@@ -44,7 +44,11 @@ Turn on **Capture Screens** and Log also records every display you have connecte
 
 **When a call starts,** Log notices and asks "Record this Zoom call?" Click **Record** and it records until the call ends, then stops by itself. It works with Zoom, Teams, FaceTime, Slack, Discord, WhatsApp, Webex, Signal, Telegram, and calls in Chrome, Safari, Firefox, Edge, Arc and Brave. Dictation apps like Wispr Flow or Superwhisper, Siri and voice memos also use the mic, but they never trigger it. Choose **Never for This App** to stop being asked about one app, or switch off **Detect Calls** in the menu.
 
-**Or record by hand:** click the log icon and choose how long to record, from 30 minutes to 2½ hours. Log stops when the time is up, or when you click **Stop now**. **Show Recordings** opens the folder.
+**Or record by hand:** click the log icon and choose **Start Recording**, or **Record For** a set time from 30 minutes to 2½ hours. Press **⌃⌥⌘R** anywhere to start or stop. **Recent** lists your last five calls.
+
+**Mark moments.** Press **⌃⌥⌘M** (or **Mark This Moment** in the menu) when something matters. Marks are saved in `meta.json` and show up in the transcript as **⚑ 12:04 marked**, so you or an agent can jump straight to them.
+
+**Asking first.** **Copy Consent Message** puts a short note on the clipboard to paste into the call's chat: *"Just so you know, I'm recording this call so I can go back over it later. Let me know if you'd rather I didn't."*
 
 While recording, the icon fills in. Nothing else changes, so it gives nothing away if you're sharing your screen. **Show Timer in Menu Bar** adds a clock.
 
@@ -53,6 +57,7 @@ While recording, the icon fills in. Nothing else changes, so it gives nothing aw
 ```sh
 open "log://record?minutes=60"   # record for an hour
 open "log://record-call"         # record the call that's happening now, until it ends
+open "log://mark"                # mark this moment
 open "log://stop"
 open "log://show"                # open the latest recording
 ```
@@ -79,12 +84,12 @@ Without Capture Screens, the folder has `Call.m4a` instead of `Call.mp4`.
 
 Some details:
 
-- **Built-in mic first.** If your Mac has a built-in mic, Log uses it even when AirPods are connected. Recording from AirPods switches them to a lower-quality call mode, which would make the call sound worse for you.
+- **Built-in mic first.** If your Mac has a built-in mic, Log uses it even when AirPods are connected. Recording from AirPods switches them to a lower-quality call mode, which would make the call sound worse for you. Pick another mic under **Settings > Microphone**.
 - **Screens stay readable.** Each display is recorded at its full resolution, up to 2560 pixels wide. One frame a second is enough to follow slides, code and documents, and it keeps an hour of video small.
 - **Checks both sides are heard.** If nothing at all has been heard from your mic or the other side after 2 minutes, a ⚠︎ appears next to the icon (never a pop-up, so nothing shows on a shared screen). When you stop, a notification says whether both sides were heard. Click it to open the recording.
 - **Safe with your disk.** Log won't start with less than 5 GB free, and it stops and saves if space drops below that during a call.
 - **Safe when things go wrong.** Quitting, logging out, shutting down or putting the Mac to sleep mid-call saves everything recorded so far. If Log crashes or the Mac loses power, Log finishes the recording the next time it opens.
-- **Open at login** is off until you turn it on in the menu.
+- **Settings.** Capture Screens, Microphone, Detect Calls, Write Transcripts, Show Timer in Menu Bar and Open at Login (off until you turn it on) are under **Settings** in the menu.
 
 ## Install
 

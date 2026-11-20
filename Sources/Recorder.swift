@@ -10,7 +10,8 @@ func hostNow() -> CMTime { CMClockGetTime(CMClockGetHostTimeClock()) }
 /// every display. All files share one time zero, the moment recording started.
 /// Shared state is touched only on `q` (audio) or each writer's own queue (screens).
 final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
-    let dir: URL, screens: Bool, app: String?
+    let dir: URL, screens: Bool, app: String?, mic: String?
+    private(set) var marks: [Double] = []
     let me: Track, them: Track
     var onError: ((Error) -> Void)?
     private let q = DispatchQueue(label: "log.audio")
@@ -18,8 +19,8 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sen
     private var audio: SCStream?
     private var screenStreams: [(SCStream, ScreenWriter)] = []
 
-    init(dir: URL, screens: Bool, app: String? = nil) {
-        self.dir = dir; self.screens = screens; self.app = app
+    init(dir: URL, screens: Bool, app: String? = nil, mic: String? = nil) {
+        self.dir = dir; self.screens = screens; self.app = app; self.mic = mic
         let tracks = dir.appendingPathComponent("tracks")
         me = Track(tracks.appendingPathComponent("me.caf")); them = Track(tracks.appendingPathComponent("them.caf"))
     }
@@ -37,10 +38,8 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sen
         cfg.sampleRate = 48_000
         cfg.channelCount = 1
         cfg.captureMicrophone = true
-        // Prefer the built-in mic: recording from AirPods drops them into low-quality call mode,
-        // which would spoil what you hear. Macs without one use the default mic.
-        let mics = AVCaptureDevice.DiscoverySession(deviceTypes: [.microphone], mediaType: .audio, position: .unspecified).devices
-        let mic = mics.first { UInt32(bitPattern: $0.transportType) == kAudioDeviceTransportTypeBuiltIn } ?? AVCaptureDevice.default(for: .audio)
+        let mics = microphones()
+        let mic = mics.first { $0.uniqueID == self.mic } ?? automaticMicrophone(mics)
         cfg.microphoneCaptureDeviceID = mic?.uniqueID
         try Meta(started: Date(), app: app, microphone: mic?.localizedName).write(dir)
         let s = SCStream(filter: SCContentFilter(display: main, excludingWindows: []), configuration: cfg, delegate: self)
@@ -83,6 +82,12 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sen
 
     var elapsed: Double { (hostNow() - start).seconds }
 
+    /// Saves a mark straight to meta.json, so it survives a crash too.
+    func mark() {
+        let all = q.sync { marks.append(elapsed.rounded()); return marks }
+        if var meta = Meta.read(dir) { meta.marks = all; try? meta.write(dir) }
+    }
+
     /// Sides of the call with no sound at all so far: a muted mic, or call audio going
     /// somewhere Log can't hear.
     func silentSides() -> [String] {
@@ -95,6 +100,16 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sen
     }
 
     func stream(_ s: SCStream, didStopWithError error: Error) { onError?(error) }
+}
+
+func microphones() -> [AVCaptureDevice] {
+    AVCaptureDevice.DiscoverySession(deviceTypes: [.microphone], mediaType: .audio, position: .unspecified).devices
+}
+
+/// The built-in mic: recording from AirPods drops them into low-quality call mode, which would
+/// spoil what you hear. Macs without one use the default mic.
+func automaticMicrophone(_ mics: [AVCaptureDevice]) -> AVCaptureDevice? {
+    mics.first { UInt32(bitPattern: $0.transportType) == kAudioDeviceTransportTypeBuiltIn } ?? AVCaptureDevice.default(for: .audio)
 }
 
 /// One side of the call, written as 16-bit PCM in a CAF file. Unlike AAC in .m4a, a CAF file

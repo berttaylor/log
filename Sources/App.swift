@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import ServiceManagement
 import UserNotifications
 
@@ -34,6 +35,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifica
     /// The call app using the mic right now, and since when. Polled every 3 seconds.
     var call: (app: String?, since: Date) = (nil, Date())
     var offered = false   // "Record this call?" already shown for the current call
+    var timed = true   // false: runs until stopped (or the call ends), so the clock counts up
 
     func applicationDidFinishLaunching(_ n: Notification) {
         item.menu = NSMenu()
@@ -47,6 +49,10 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifica
             UNNotificationAction(identifier: "record", title: "Record"),
             UNNotificationAction(identifier: "ignore", title: "Never for This App"),
         ], intentIdentifiers: [])])
+        if !isDev {   // the installed app owns the shortcuts
+            Hotkeys.register([(kVK_ANSI_R, { MainActor.assumeIsolated { self.toggleRecording() } }),
+                              (kVK_ANSI_M, { MainActor.assumeIsolated { self.mark() } })])
+        }
         Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { _ in
             Task.detached {   // Core Audio queries stay off the main thread
                 let app = callApp(in: audioProcesses())
@@ -57,6 +63,15 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifica
             MainActor.assumeIsolated { self.stop(warning: "Stopped when the Mac went to sleep") }
         }
         update()
+        if !defaults.bool(forKey: "consentShown") {   // once, on first launch
+            defaults.set(true, forKey: "consentShown")
+            alert("Before you record", """
+                Log records your microphone and everything your Mac plays. Tell people when you're recording \
+                them, and only record calls you're allowed to: in many places everyone on the call has to agree.
+
+                "Copy Consent Message" in the menu puts a short note on the clipboard to paste into the call's chat.
+                """)
+        }
         // Finish any recording Log was killed in the middle of. The list is taken now, before a
         // new recording can start, so a live recording is never touched.
         let interrupted = interruptedRecordings(), missing = untranscribed()
@@ -81,7 +96,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifica
     }
 
     /// Automation, for Shortcuts, Raycast, scripts or a keyboard shortcut (the dev build uses log-dev://):
-    ///   log://record?minutes=60   log://record-call   log://stop   log://show
+    ///   log://record?minutes=60   log://record-call   log://mark   log://stop   log://show
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls {
             switch url.host {
@@ -90,6 +105,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifica
                 record(minutes: min(max(minutes.flatMap(Int.init) ?? 60, 1), callMinutes))
             case "record-call": recordCall()
             case "stop": stop()
+            case "mark": mark()
             case "show": showRecordings()
             default: break
             }
@@ -106,7 +122,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifica
     /// Time left, or time so far for a recording that runs until the call ends.
     var clock: String? {
         guard state == .recording, let rec else { return nil }
-        let s = max(0, Int(rec.app == nil ? endsAt.timeIntervalSinceNow.rounded(.up) : rec.elapsed))
+        let s = max(0, Int(timed ? endsAt.timeIntervalSinceNow.rounded(.up) : rec.elapsed))
         return String(format: "%d:%02d", s / 3600, s % 3600 / 60)
     }
 
@@ -125,45 +141,106 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifica
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
-        func add(_ title: String, _ action: Selector? = nil, key: String = "", on: Bool? = nil, tag: Int = 0, target: AnyObject? = nil) {
-            let m = menu.addItem(withTitle: title, action: action, keyEquivalent: key)
-            m.target = target ?? self; m.tag = tag
+        @discardableResult
+        func add(_ title: String, _ action: Selector? = nil, key: String = "", on: Bool? = nil, tag: Int = 0,
+                 object: Any? = nil, target: AnyObject? = nil, to parent: NSMenu? = nil) -> NSMenuItem {
+            let m = (parent ?? menu).addItem(withTitle: title, action: action, keyEquivalent: key)
+            m.target = target ?? self; m.tag = tag; m.representedObject = object
             if let on { m.state = on ? .on : .off }
+            return m
+        }
+        func submenu(_ title: String) -> NSMenu {
+            let sub = NSMenu()
+            add(title).submenu = sub
+            return sub
         }
         switch state {
         case .idle:
             if let warning { add(warning); menu.addItem(.separator()) }
-            if let app = call.app { add("Record This \(app) Call", #selector(recordCall)); menu.addItem(.separator()) }
-            for (title, mins) in [("30 minutes", 30), ("1 hour", 60), ("1½ hours", 90), ("2 hours", 120), ("2½ hours", 150)] {
-                add("Record \(title)", #selector(record), tag: mins)
+            if let app = call.app { add("Record This \(app) Call", #selector(recordCall)) }
+            add("Start Recording", #selector(startRecording))
+            let durations = submenu("Record For")
+            for (title, mins) in [("30 Minutes", 30), ("1 Hour", 60), ("1½ Hours", 90), ("2 Hours", 120), ("2½ Hours", 150)] {
+                add(title, #selector(record), tag: mins, to: durations)
             }
         case .starting: add("Starting…")
         case .recording:
             if let warning { add(warning) }
             let what = rec?.screens == true ? "audio and screens" : "audio"
             if let app = rec?.app { add("Recording the \(app) call (\(what)) · stops when it ends") }
-            else { add("Recording \(what) · \(clock ?? "") left") }
-            add("Stop now", #selector(stopNow), key: "s")
+            else { add("Recording \(what) · \(clock ?? "")\(timed ? " left" : "")") }
+            add("Mark This Moment", #selector(mark))
+            add("Stop Recording", #selector(stopNow), key: "s")
         case .saving: add("Saving…")
         }
         menu.addItem(.separator())
+        let recent = recentRecordings()
+        if !recent.isEmpty {
+            let list = submenu("Recent")
+            for dir in recent { add(title(of: dir), #selector(reveal), object: dir, to: list) }
+        }
         add("Show Recordings", #selector(showRecordings))
+        add("Copy Consent Message", #selector(copyConsent))
+        menu.addItem(.separator())
+        let settings = submenu("Settings")
         add("Capture Screens (1 frame a second)", state == .idle ? #selector(toggleScreens) : nil,
-            on: defaults.bool(forKey: "captureScreens"))
-        add("Show Timer in Menu Bar", #selector(toggleTimer), on: defaults.bool(forKey: "showTimer"))
-        add("Detect Calls", #selector(toggleDetect), on: defaults.bool(forKey: "detectCalls"))
-        if #available(macOS 26, *) { add("Write Transcripts", #selector(toggleTranscribe), on: defaults.bool(forKey: "transcribe")) }
-        if !isDev { add("Open at Login", #selector(toggleLogin), on: SMAppService.mainApp.status == .enabled) }
+            on: defaults.bool(forKey: "captureScreens"), to: settings)
+        let mics = NSMenu(), available = microphones()
+        let chosen = defaults.string(forKey: "microphone").flatMap { id in available.contains { $0.uniqueID == id } ? id : nil }
+        add("Microphone", to: settings).submenu = mics
+        add("Automatic (Built-in)", #selector(chooseMic), on: chosen == nil, to: mics)
+        for mic in available { add(mic.localizedName, #selector(chooseMic), on: chosen == mic.uniqueID, object: mic.uniqueID, to: mics) }
+        add("Detect Calls", #selector(toggleDetect), on: defaults.bool(forKey: "detectCalls"), to: settings)
+        if #available(macOS 26, *) { add("Write Transcripts", #selector(toggleTranscribe), on: defaults.bool(forKey: "transcribe"), to: settings) }
+        add("Show Timer in Menu Bar", #selector(toggleTimer), on: defaults.bool(forKey: "showTimer"), to: settings)
+        if !isDev { add("Open at Login", #selector(toggleLogin), on: SMAppService.mainApp.status == .enabled, to: settings) }
+        settings.addItem(.separator())
+        add("⌃⌥⌘R starts or stops recording, ⌃⌥⌘M marks a moment", to: settings)
         menu.addItem(.separator())
         add("Quit \(name)", #selector(NSApplication.terminate), key: "q", target: NSApp)
     }
 
+    /// The five newest recordings.
+    func recentRecordings() -> [URL] {
+        let dirs = (try? FileManager.default.contentsOfDirectory(at: library, includingPropertiesForKeys: nil)) ?? []
+        return Array(dirs.filter { exists(Meta.url($0)) }.sorted { $0.lastPathComponent > $1.lastPathComponent }.prefix(5))
+    }
+
+    /// "20 Nov, 14:30 · Zoom · 43 min"
+    func title(of dir: URL) -> String {
+        guard let meta = Meta.read(dir) else { return dir.lastPathComponent }
+        let when = meta.started.formatted(.dateTime.day().month().hour().minute())
+        let minutes = meta.duration.map { " · \(max(1, Int(($0 / 60).rounded()))) min" } ?? ""
+        return when + (meta.app.map { " · " + $0 } ?? "") + minutes
+    }
+
+    @objc func reveal(_ sender: NSMenuItem) {
+        guard let dir = sender.representedObject as? URL else { return }
+        let main = ["Call.mp4", "Call.m4a"].map(dir.appendingPathComponent).first(where: exists)
+        NSWorkspace.shared.activateFileViewerSelecting([main ?? dir])
+    }
+
+    static let consent = "Just so you know, I'm recording this call so I can go back over it later. Let me know if you'd rather I didn't."
+
+    @objc func copyConsent() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(App.consent, forType: .string)
+    }
+
+    @objc func chooseMic(_ sender: NSMenuItem) { defaults.set(sender.representedObject as? String, forKey: "microphone") }
+
+    @objc func startRecording() { record(minutes: callMinutes, timed: false) }
+
+    @objc func mark() { if state == .recording { rec?.mark() } }
+
+    @objc func toggleRecording() { state == .idle ? startRecording() : stop() }
+
     @objc func record(_ sender: NSMenuItem) { record(minutes: sender.tag) }
 
-    @objc func recordCall() { if let app = call.app { record(minutes: callMinutes, app: app) } }
+    @objc func recordCall() { if let app = call.app { record(minutes: callMinutes, app: app, timed: false) } }
 
-    /// Starts recording for `minutes`; with a call `app`, it also stops when that call ends.
-    func record(minutes: Int, app: String? = nil) {
+    /// Starts recording for at most `minutes`; with a call `app`, it also stops when that call ends.
+    func record(minutes: Int, app: String? = nil, timed: Bool = true) {
         guard state == .idle else { return }
         let free = freeGB()
         guard free >= minFreeGB else {
@@ -173,9 +250,10 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifica
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd_HH-mm-ss"
         let folder = f.string(from: Date()) + (app.map { " " + $0 } ?? "")
-        let r = Recorder(dir: library.appendingPathComponent(folder), screens: defaults.bool(forKey: "captureScreens"), app: app)
+        let r = Recorder(dir: library.appendingPathComponent(folder), screens: defaults.bool(forKey: "captureScreens"),
+                         app: app, mic: defaults.string(forKey: "microphone"))
         r.onError = { error in Task { @MainActor in self.stop(warning: "Stopped early: \(error.localizedDescription)") } }
-        rec = r; state = .starting; warning = nil; offered = true; update()
+        rec = r; state = .starting; warning = nil; offered = true; self.timed = timed; update()
         UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: ["call"])
         Task {
             do {
@@ -291,7 +369,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifica
         await MainActor.run {
             switch (app, action) {
             case (let app?, "ignore"): defaults.set(ignored + [app], forKey: "ignoredCallApps")
-            case (let app?, _): record(minutes: callMinutes, app: app)
+            case (let app?, _): record(minutes: callMinutes, app: app, timed: false)
             default: showRecordings()
             }
         }

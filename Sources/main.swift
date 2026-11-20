@@ -24,6 +24,8 @@ func check() {
     let reply = Line(start: 4.5, end: 6, speaker: "Me", text: "Sure, one second.")
     precondition(merge(me: [bleed, reply], them: [them]) == [them, reply], "speaker bleed is dropped from Me")
     precondition(markdown([them, reply], title: "Call") == "# Call\n\n**0:01 Them:** Can you share the dashboard?\n\n**0:04 Me:** Sure, one second.\n")
+    let mark = Line(start: 5, end: 5, speaker: "", text: "")
+    precondition(markdown([reply, mark], title: "Call") == "# Call\n\n**0:04 Me:** Sure, one second.\n\n**⚑ 0:05 marked**\n")
     print("checks passed")
     for p in audioProcesses() where p.input || p.output { print(p.bundleID.isEmpty ? "(no bundle id)" : p.bundleID, p.input ? "mic" : "", p.output ? "playing" : "") }
     print("call app:", callApp(in: audioProcesses()) ?? "none")

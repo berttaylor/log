@@ -19,6 +19,7 @@ struct Meta: Codable {
     var app: String?
     var microphone: String?
     var duration: Double?
+    var marks: [Double]?   // seconds from the start, from Mark This Moment
     var files: [String]?
 
     static func url(_ dir: URL) -> URL { dir.appendingPathComponent("meta.json") }
