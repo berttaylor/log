@@ -4,24 +4,27 @@ import Speech
 /// One stretch of speech in a transcript, timed from the start of the recording.
 struct Line: Equatable { let start: Double, end: Double, speaker: String, text: String }
 
-/// Interleaves both sides by time. A "Me" line that repeats an overlapping "Them" line is the
-/// other side leaking from the speakers into the mic, so it is dropped.
+/// Interleaves both sides by time. A "Me" line of 3 or more words that mostly repeats an
+/// overlapping "Them" line is the other side leaking from the speakers into the mic, so it is
+/// dropped. Shorter lines ("Yeah.") are kept: too little to tell an echo from a reply.
 func merge(me: [Line], them: [Line]) -> [Line] {
     func words(_ s: String) -> Set<String> { Set(s.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init)) }
+    let theirs = them.map { ($0, words($0.text)) }
     let mine = me.filter { m in
         let w = words(m.text)
-        return !them.contains { t in
-            t.start < m.end && m.start < t.end && Double(w.intersection(words(t.text)).count) >= 0.6 * Double(w.count)
+        return w.count < 3 || !theirs.contains { t, tw in
+            t.start < m.end && m.start < t.end && Double(w.intersection(tw).count) >= 0.6 * Double(w.count)
         }
     }
     return (mine + them).sorted { $0.start < $1.start }
 }
 
-/// Markdown with one paragraph per turn: "**12:04 Them:** ...".
+/// Markdown with one paragraph per turn, or after a pause of over 10 s: "**12:04 Them:** ...".
 func markdown(_ lines: [Line], title: String) -> String {
-    var out = "# \(title)", speaker = ""
+    var out = "# \(title)", speaker = "", end = 0.0
     for line in lines {
-        if line.speaker == speaker { out += " " + line.text; continue }
+        defer { end = line.end }
+        if line.speaker == speaker, line.start - end <= 10 { out += " " + line.text; continue }
         speaker = line.speaker
         let s = Int(line.start)
         out += String(format: "\n\n**%d:%02d %@:** ", s / 60, s % 60, line.speaker) + line.text
@@ -33,12 +36,18 @@ func markdown(_ lines: [Line], title: String) -> String {
 /// tracks say who spoke, so there is no guessing. macOS downloads the speech model once.
 @available(macOS 26, *)
 func transcribe(_ dir: URL) async throws {
+    guard let locale = await SpeechTranscriber.supportedLocale(equivalentTo: .current) else {
+        throw CocoaError(.featureUnsupported, userInfo: [NSLocalizedDescriptionKey: "Speech recognition doesn't support \(Locale.current.identifier)."])
+    }
+    let model = SpeechTranscriber(locale: locale, transcriptionOptions: [], reportingOptions: [], attributeOptions: [])
+    if let download = try await AssetInventory.assetInstallationRequest(supporting: [model]) { try await download.downloadAndInstall() }
     let tracks = dir.appendingPathComponent("tracks")
-    async let me = speech(in: tracks.appendingPathComponent("me.m4a"), speaker: "Me")
-    async let them = speech(in: tracks.appendingPathComponent("them.m4a"), speaker: "Them")
-    let lines = merge(me: try await me, them: try await them)
+    async let me = speech(in: tracks.appendingPathComponent("me.m4a"), speaker: "Me", locale: locale)
+    async let them = speech(in: tracks.appendingPathComponent("them.m4a"), speaker: "Them", locale: locale)
+    let lines = merge(me: await me, them: await them)
     let meta = Meta.read(dir)
-    let title = [meta?.app.map { "\($0) call" } ?? "Call", meta?.started.formatted(date: .abbreviated, time: .shortened)].compactMap { $0 }.joined(separator: ", ")
+    var title = meta?.app.map { "\($0) call" } ?? "Call"
+    if let started = meta?.started { title += ", " + started.formatted(date: .abbreviated, time: .shortened) }
     try markdown(lines, title: title).write(to: dir.appendingPathComponent("transcript.md"), atomically: true, encoding: .utf8)
     if var meta, !(meta.files ?? []).contains("transcript.md") {
         meta.files = ((meta.files ?? []) + ["transcript.md"]).sorted()
@@ -46,18 +55,25 @@ func transcribe(_ dir: URL) async throws {
     }
 }
 
+/// One track's speech, or nothing if the track is missing or unreadable.
 @available(macOS 26, *)
-func speech(in url: URL, speaker: String) async throws -> [Line] {
-    guard exists(url) else { return [] }
-    let locale = await SpeechTranscriber.supportedLocale(equivalentTo: .current) ?? Locale(identifier: "en-US")
+func speech(in url: URL, speaker: String, locale: Locale) async -> [Line] {
+    guard let file = try? AVAudioFile(forReading: url) else { return [] }
     let transcriber = SpeechTranscriber(locale: locale, transcriptionOptions: [], reportingOptions: [], attributeOptions: [.audioTimeRange])
-    if let download = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) { try await download.downloadAndInstall() }
     let lines = Task {
         try await transcriber.results.reduce(into: [Line]()) { lines, r in
             let text = String(r.text.characters).trimmingCharacters(in: .whitespaces)
             if !text.isEmpty { lines.append(Line(start: r.range.start.seconds, end: r.range.end.seconds, speaker: speaker, text: text)) }
         }
     }
-    try await SpeechAnalyzer(modules: [transcriber]).start(inputAudioFile: AVAudioFile(forReading: url), finishAfterFile: true)
-    return try await lines.value
+    defer { lines.cancel() }
+    do { try await SpeechAnalyzer(modules: [transcriber]).start(inputAudioFile: file, finishAfterFile: true) } catch { return [] }
+    return (try? await lines.value) ?? []
+}
+
+/// Saved recordings without a transcript, for example because Log quit while writing it.
+func untranscribed() -> [URL] {
+    let dirs = (try? FileManager.default.contentsOfDirectory(at: library, includingPropertiesForKeys: nil)) ?? []
+    let unfinished = Set(interruptedRecordings())
+    return dirs.filter { exists(Meta.url($0)) && !exists($0.appendingPathComponent("transcript.md")) && !unfinished.contains($0) }
 }

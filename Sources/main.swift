@@ -33,7 +33,7 @@ func check() {
 func test(seconds: Double, screens: Bool, transcript: Bool) {
     let r = Recorder(dir: library.appendingPathComponent("test"), screens: screens)
     try? FileManager.default.removeItem(at: r.dir)
-    DispatchQueue.main.asyncAfter(deadline: .now() + seconds + 60) { print("timed out"); exit(2) }
+    DispatchQueue.main.asyncAfter(deadline: .now() + seconds + (transcript ? 600 : 60)) { print("timed out"); exit(2) }
     Task {
         do { try await r.start() } catch { print("start failed: \(error)"); exit(1) }
         try await Task.sleep(for: .seconds(seconds))
