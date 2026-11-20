@@ -1,3 +1,4 @@
+import Accelerate
 import AVFoundation
 import CoreAudio
 import ScreenCaptureKit
@@ -79,6 +80,14 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sen
         if let failed { throw failed }
     }
 
+    var elapsed: Double { (hostNow() - start).seconds }
+
+    /// Sides of the call with no sound at all so far: a muted mic, or call audio going
+    /// somewhere Log can't hear.
+    func silentSides() -> [String] {
+        q.sync { [("your microphone", me.heard), ("the other side", them.heard)] }.filter { !$0.1 }.map(\.0)
+    }
+
     func stream(_ s: SCStream, didOutputSampleBuffer sb: CMSampleBuffer, of type: SCStreamOutputType) {
         guard sb.isValid, type != .screen else { return }
         (type == .audio ? them : me).write(sb, start: start)
@@ -94,6 +103,8 @@ final class Track {
     let url: URL
     var file: AVAudioFile?
     var written: AVAudioFramePosition = 0
+    /// Whether any buffer so far had sound in it.
+    var heard = false
     init(_ url: URL) { self.url = url }
 
     func write(_ sb: CMSampleBuffer, start: CMTime) {
@@ -117,6 +128,12 @@ final class Track {
             }
             try? file.write(from: buf)
             written += AVAudioFramePosition(buf.frameLength)
+            if !heard, let samples = buf.floatChannelData?[0], buf.frameLength > 0 {
+                var peak: Float = 0
+                vDSP_maxmgv(samples, 1, &peak, vDSP_Length(buf.frameLength))
+                // -80 dBFS: below any working mic's noise floor, above the exact zeros of no playback
+                if peak > 1e-4 { heard = true }
+            }
         }
     }
 }
