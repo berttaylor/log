@@ -45,7 +45,9 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifica
         let interrupted = interruptedRecordings()
         guard !interrupted.isEmpty else { return }
         Task.detached {
-            let recovered = interrupted.filter { (try? finish($0)) != nil }
+            var finished: [URL] = []
+            for dir in interrupted where (try? await finish(dir)) != nil { finished.append(dir) }
+            let recovered = finished
             await MainActor.run {
                 guard self.state == .idle else { return }   // don't cover a live recording's status
                 self.last = recovered.last ?? self.last

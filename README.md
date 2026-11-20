@@ -52,12 +52,18 @@ Each recording gets its own folder:
 
 ```
 ~/Downloads/Log/2026-11-19_14-30-00/
-  me.m4a         your microphone
-  them.m4a       everything your Mac played
-  call.m4a       both together: you on the left, them on the right
-  screen-1.mov   each display at one frame a second (if Capture Screens is on)
-  screen-2.mov
+  Call.mp4         the whole call in one file: every screen side by side, both voices
+  meta.json        when it started, how long it ran, which mic, which files
+  tracks/
+    me.m4a         your microphone on its own
+    them.m4a       everything your Mac played, on its own
+    screen-1.mov   each display on its own, one frame a second
+    screen-2.mov
 ```
+
+Without Capture Screens, the folder has `Call.m4a` instead of `Call.mp4`.
+
+`Call.mp4` is the file to watch, or to hand to an AI model: nothing is cropped or scaled down, so every screen stays readable. The separate tracks are there for transcription (your voice and theirs never overlap in one file) and for editing.
 
 Some details:
 

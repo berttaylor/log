@@ -20,11 +20,12 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sen
 
     init(dir: URL, screens: Bool) {
         self.dir = dir; self.screens = screens
-        me = Track(dir.appendingPathComponent("me.caf")); them = Track(dir.appendingPathComponent("them.caf"))
+        let tracks = dir.appendingPathComponent("tracks")
+        me = Track(tracks.appendingPathComponent("me.caf")); them = Track(tracks.appendingPathComponent("them.caf"))
     }
 
     func start() async throws {
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: dir.appendingPathComponent("tracks"), withIntermediateDirectories: true)
         let content = try await SCShareableContent.current
         guard let main = content.displays.first else { throw CocoaError(.featureUnsupported) }
         start = hostNow()
@@ -39,9 +40,9 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sen
         // Prefer the built-in mic: recording from AirPods drops them into low-quality call mode,
         // which would spoil what you hear. Macs without one use the default mic.
         let mics = AVCaptureDevice.DiscoverySession(deviceTypes: [.microphone], mediaType: .audio, position: .unspecified).devices
-        if let mic = mics.first(where: { UInt32(bitPattern: $0.transportType) == kAudioDeviceTransportTypeBuiltIn }) {
-            cfg.microphoneCaptureDeviceID = mic.uniqueID
-        }
+        let mic = mics.first { UInt32(bitPattern: $0.transportType) == kAudioDeviceTransportTypeBuiltIn } ?? AVCaptureDevice.default(for: .audio)
+        cfg.microphoneCaptureDeviceID = mic?.uniqueID
+        try Meta(started: Date(), microphone: mic?.localizedName).write(dir)
         let s = SCStream(filter: SCContentFilter(display: main, excludingWindows: []), configuration: cfg, delegate: self)
         for type in [SCStreamOutputType.screen, .audio, .microphone] { try s.addStreamOutput(self, type: type, sampleHandlerQueue: q) }
         try await s.startCapture()
@@ -56,7 +57,7 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sen
             let c = SCStreamConfiguration()
             c.width = Int(w * scale) & ~1; c.height = Int(h * scale) & ~1   // H.264 needs even sizes
             c.minimumFrameInterval = CMTime(value: 1, timescale: 1)
-            let writer = try ScreenWriter(url: dir.appendingPathComponent("screen-\(i + 1).mov"),
+            let writer = try ScreenWriter(url: dir.appendingPathComponent("tracks/screen-\(i + 1).mov"),
                                           width: c.width, height: c.height, start: start)
             let vs = SCStream(filter: SCContentFilter(display: d, excludingWindows: []), configuration: c, delegate: nil)
             try vs.addStreamOutput(writer, type: .screen, sampleHandlerQueue: writer.queue)
@@ -76,7 +77,7 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sen
             if let error = await writer.finish(at: end) { failed = error }
         }
         q.sync { me.file = nil; them.file = nil }   // closes the raw audio files
-        try finish(dir)
+        try await finish(dir)
         if let failed { throw failed }
     }
 
