@@ -2,6 +2,9 @@ import AVFoundation
 import CoreAudio
 import ScreenCaptureKit
 
+/// Capture timestamps use the host clock.
+func hostNow() -> CMTime { CMClockGetTime(CMClockGetHostTimeClock()) }
+
 /// Captures one call: what the Mac plays ("them"), the microphone ("me") and, optionally,
 /// every display. All files share one time zero, the moment recording started.
 /// Shared state is touched only on `q` (audio) or each writer's own queue (screens).
@@ -23,7 +26,7 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sen
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let content = try await SCShareableContent.current
         guard let main = content.displays.first else { throw CocoaError(.featureUnsupported) }
-        start = CMClockGetTime(CMClockGetHostTimeClock())   // capture timestamps use the host clock
+        start = hostNow()
         // ScreenCaptureKit needs a display to capture audio, so ask for a tiny 2x2 picture and ignore it.
         let cfg = SCStreamConfiguration()
         cfg.width = 2; cfg.height = 2
@@ -62,16 +65,18 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sen
     }
 
     /// Stops capture, closes every file and turns the raw tracks into the finished files.
-    /// Safe to call on a recorder that only partly started.
-    func stop() async {
-        let end = CMClockGetTime(CMClockGetHostTimeClock())
+    /// Safe to call on a recorder that only partly started. Throws if a file couldn't be saved.
+    func stop() async throws {
+        let end = hostNow()
         try? await audio?.stopCapture()
+        var failed: Error?
         for (vs, writer) in screenStreams {
             try? await vs.stopCapture()
-            await writer.finish(at: end)
+            if let error = await writer.finish(at: end) { failed = error }
         }
         q.sync { me.file = nil; them.file = nil }   // closes the raw audio files
-        try? finish(dir)
+        try finish(dir)
+        if let failed { throw failed }
     }
 
     func stream(_ s: SCStream, didOutputSampleBuffer sb: CMSampleBuffer, of type: SCStreamOutputType) {
@@ -143,11 +148,14 @@ final class ScreenWriter: NSObject, SCStreamOutput, @unchecked Sendable {
     }
 
     /// Ends the movie at `end`, so a screen that stopped changing still lasts the whole call.
-    func finish(at end: CMTime) async {
+    /// Returns the writer's error if the movie couldn't be written.
+    func finish(at end: CMTime) async -> Error? {
+        guard writer.status == .writing else { return writer.error }
         queue.sync {
             input.markAsFinished()
             writer.endSession(atSourceTime: end)
         }
         await writer.finishWriting()
+        return writer.error
     }
 }

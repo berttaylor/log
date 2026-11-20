@@ -18,7 +18,7 @@ func test(seconds: Double, screens: Bool) {
     Task {
         do { try await r.start() } catch { print("start failed: \(error)"); exit(1) }
         try await Task.sleep(for: .seconds(seconds))
-        await r.stop()
+        do { try await r.stop() } catch { print("save failed: \(error)") }
         print(r.dir.path)
         exit(0)
     }
@@ -31,7 +31,9 @@ MainActor.assumeIsolated {
     var delegate: App?
     switch args.first {
     case "--test": test(seconds: Double(args.dropFirst().first ?? "") ?? 5, screens: args.contains("screens"))
-    case "--recover": recoverInterrupted().forEach { print($0.path) }; exit(0)
+    case "--recover":
+        for dir in interruptedRecordings() { print(dir.path, (try? finish(dir)) == nil ? "failed" : "recovered") }
+        exit(0)
     default: delegate = App(); app.delegate = delegate
     }
     withExtendedLifetime(delegate) { app.run() }

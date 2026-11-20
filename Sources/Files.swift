@@ -19,13 +19,11 @@ func finish(_ dir: URL) throws {
     }
 }
 
-/// Finishes every recording that still has raw tracks, oldest first, and returns them.
-func recoverInterrupted() -> [URL] {
+/// Recordings Log was killed in the middle of: they still have raw tracks. Oldest first.
+func interruptedRecordings() -> [URL] {
     let dirs = (try? FileManager.default.contentsOfDirectory(at: library, includingPropertiesForKeys: nil)) ?? []
-    let interrupted = dirs.filter { exists($0.appendingPathComponent("me.caf")) || exists($0.appendingPathComponent("them.caf")) }
+    return dirs.filter { exists($0.appendingPathComponent("me.caf")) || exists($0.appendingPathComponent("them.caf")) }
         .sorted { $0.lastPathComponent < $1.lastPathComponent }
-    for dir in interrupted { try? finish(dir) }
-    return interrupted
 }
 
 /// Re-encodes an audio file as AAC in .m4a.
@@ -33,14 +31,15 @@ func encode(_ src: URL, to dst: URL) throws {
     let input = try AVAudioFile(forReading: src)
     let output = try AVAudioFile(forWriting: dst, settings: aac(rate: input.fileFormat.sampleRate, channels: input.fileFormat.channelCount))
     let buf = AVAudioPCMBuffer(pcmFormat: input.processingFormat, frameCapacity: 48_000)!
-    while input.framePosition < input.length {
+    while input.framePosition < input.length {   // the empty-read guard stops a crashed file whose header over-promises
         try input.read(into: buf)
+        guard buf.frameLength > 0 else { return }
         try output.write(from: buf)
     }
 }
 
 /// Puts two mono tracks side by side in one stereo file: first on the left, second on the right.
-/// Both come from the same capture stream, so they share a sample rate.
+/// Both come from the same capture stream, so they normally share a sample rate.
 func mix(_ left: URL, _ right: URL, to out: URL) throws {
     let files = try [left, right].map(AVAudioFile.init(forReading:))
     let rate = files[0].processingFormat.sampleRate

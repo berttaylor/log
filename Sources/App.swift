@@ -11,6 +11,7 @@ let minFreeGB = 5.0
 /// recordings folder, settings and permissions, and never opens at login, so it runs
 /// happily next to the installed app.
 let name = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "Log"
+let isDev = name != "Log"
 let library = URL.downloadsDirectory.appendingPathComponent(name)
 
 @MainActor
@@ -36,12 +37,17 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             MainActor.assumeIsolated { self.stop(warning: "Stopped when the Mac went to sleep") }
         }
         update()
-        Task.detached {   // finish any recording Log was killed in the middle of
-            let recovered = recoverInterrupted()
-            guard let newest = recovered.last else { return }
+        // Finish any recording Log was killed in the middle of. The list is taken now, before a
+        // new recording can start, so a live recording is never touched.
+        let interrupted = interruptedRecordings()
+        guard !interrupted.isEmpty else { return }
+        Task.detached {
+            let recovered = interrupted.filter { (try? finish($0)) != nil }
             await MainActor.run {
-                self.last = newest
-                self.warning = recovered.count == 1 ? "Recovered an interrupted recording" : "Recovered \(recovered.count) interrupted recordings"
+                self.last = recovered.last ?? self.last
+                self.warning = recovered.count == interrupted.count
+                    ? "Recovered \(recovered.count == 1 ? "an interrupted recording" : "\(recovered.count) interrupted recordings")"
+                    : "Couldn't recover \(interrupted.count - recovered.count) interrupted recording(s)"
                 self.update()
             }
         }
@@ -67,9 +73,9 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let left = timeLeft
         button.image = left == nil ? icons.idle : icons.recording
         button.appearsDisabled = state == .saving
-        var title = name == "Log" ? "" : " dev"   // tells a development build apart from the installed app
-        if let left { if defaults.bool(forKey: "showTimer") { title += " \(left)" } }
-        else if warning != nil { title += " ⚠︎" }
+        var title = isDev ? " dev" : ""   // tells a development build apart from the installed app
+        if let left, defaults.bool(forKey: "showTimer") { title += " \(left)" }
+        else if left == nil, warning != nil { title += " ⚠︎" }
         button.title = title
     }
 
@@ -97,7 +103,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         add("Capture Screens (1 frame a second)", state == .idle ? #selector(toggleScreens) : nil,
             on: defaults.bool(forKey: "captureScreens"))
         add("Show Timer in Menu Bar", #selector(toggleTimer), on: defaults.bool(forKey: "showTimer"))
-        if name == "Log" { add("Open at Login", #selector(toggleLogin), on: SMAppService.mainApp.status == .enabled) }
+        if !isDev { add("Open at Login", #selector(toggleLogin), on: SMAppService.mainApp.status == .enabled) }
         menu.addItem(.separator())
         add("Quit \(name)", #selector(NSApplication.terminate), key: "q", target: NSApp)
     }
@@ -121,7 +127,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 state = .recording
                 ticker = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { _ in Task { @MainActor in self.tick() } }
             } catch {
-                await r.stop()
+                try? await r.stop()
                 try? FileManager.default.removeItem(at: r.dir)
                 rec = nil; state = .idle
                 alert("Couldn't start recording", """
@@ -150,7 +156,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         ticker?.invalidate()
         update()
         saving = Task {
-            await r.stop()
+            do { try await r.stop() } catch { self.warning = "Some files couldn't be saved: \(error.localizedDescription)" }
             rec = nil; last = r.dir; saving = nil; state = .idle
             update()
         }
