@@ -39,7 +39,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifica
         item.menu = NSMenu()
         item.menu?.delegate = self
         item.button?.imagePosition = .imageLeading
-        defaults.register(defaults: ["detectCalls": true])
+        defaults.register(defaults: ["detectCalls": true, "transcribe": true])
         let center = UNUserNotificationCenter.current()
         center.delegate = self
         center.requestAuthorization(options: [.alert]) { _, _ in }
@@ -59,11 +59,15 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifica
         update()
         // Finish any recording Log was killed in the middle of. The list is taken now, before a
         // new recording can start, so a live recording is never touched.
-        let interrupted = interruptedRecordings()
+        let interrupted = interruptedRecordings(), missing = untranscribed()
+        transcribeInBackground(missing)
         guard !interrupted.isEmpty else { return }
         Task.detached {
             var finished: [URL] = []
-            for dir in interrupted where (try? await finish(dir)) != nil { finished.append(dir) }
+            for dir in interrupted where (try? await finish(dir)) != nil {
+                finished.append(dir)
+                await self.transcribeInBackground([dir])
+            }
             let recovered = finished
             await MainActor.run {
                 guard self.state == .idle else { return }   // don't cover a live recording's status
@@ -148,6 +152,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifica
             on: defaults.bool(forKey: "captureScreens"))
         add("Show Timer in Menu Bar", #selector(toggleTimer), on: defaults.bool(forKey: "showTimer"))
         add("Detect Calls", #selector(toggleDetect), on: defaults.bool(forKey: "detectCalls"))
+        if #available(macOS 26, *) { add("Write Transcripts", #selector(toggleTranscribe), on: defaults.bool(forKey: "transcribe")) }
         if !isDev { add("Open at Login", #selector(toggleLogin), on: SMAppService.mainApp.status == .enabled) }
         menu.addItem(.separator())
         add("Quit \(name)", #selector(NSApplication.terminate), key: "q", target: NSApp)
@@ -232,6 +237,17 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifica
             update()
             notify("Saved \(minutes == 0 ? "a short" : "a \(minutes) min") recording",
                    self.warning ?? "You and the other side were both heard.")
+            transcribeInBackground([r.dir])
+        }
+    }
+
+    /// Writes transcripts one after another after saving, so they never hold up the next recording.
+    func transcribeInBackground(_ dirs: [URL]) {
+        guard #available(macOS 26, *), defaults.bool(forKey: "transcribe"), !dirs.isEmpty else { return }
+        Task.detached(priority: .utility) {
+            for dir in dirs {
+                do { try await transcribe(dir) } catch { await self.notify("Couldn't write the transcript", error.localizedDescription) }
+            }
         }
     }
 
@@ -250,6 +266,8 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifica
         defaults.set(on, forKey: "detectCalls")
         if on { defaults.removeObject(forKey: "ignoredCallApps") }
     }
+
+    @objc func toggleTranscribe() { defaults.set(!defaults.bool(forKey: "transcribe"), forKey: "transcribe") }
 
     @objc func toggleTimer() { defaults.set(!defaults.bool(forKey: "showTimer"), forKey: "showTimer"); update() }
 
