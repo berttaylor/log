@@ -6,7 +6,7 @@
 # bundle id, so it runs next to an installed Log without sharing settings or login items.
 set -e
 cd "$(dirname "$0")"
-VERSION=1.0.1
+VERSION=1.1.0
 if [ "$1" = release ]; then NAME=Log ID=work.bertbert.log SCHEME=log; else NAME="Log Dev" ID=work.bertbert.log.dev SCHEME=log-dev; fi
 APP="build/$NAME.app"
 rm -rf "$APP" build/Log.dmg && mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
