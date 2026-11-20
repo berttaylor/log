@@ -16,6 +16,7 @@ func aac(rate: Double, channels: AVAudioChannelCount) -> [String: Any] {
 
 struct Meta: Codable {
     var started: Date
+    var app: String?
     var microphone: String?
     var duration: Double?
     var files: [String]?

@@ -7,7 +7,10 @@ func freeGB() -> Double {
     let v = try? URL.homeDirectory.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
     return v?.volumeAvailableCapacityForImportantUsage.map { Double($0) / 1e9 } ?? .infinity
 }
-let minFreeGB = 5.0
+/// The longest recording: a call that never seems to end still stops after 4 hours.
+let callMinutes = 240
+/// Change with `defaults write work.bertbert.log minFreeGB -float 2`.
+var minFreeGB: Double { UserDefaults.standard.object(forKey: "minFreeGB") as? Double ?? 5 }
 /// "Log", or "Log Dev" for a development build (see build.sh). A dev build has its own
 /// recordings folder, settings and permissions, and never opens at login, so it runs
 /// happily next to the installed app.
@@ -26,16 +29,30 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifica
     var endsAt = Date.distantPast
     var rec: Recorder?
     var saving: Task<Void, Never>?
-    var ticker: Timer?
     var last: URL?
     var warning: String?
+    /// The call app using the mic right now, and since when. Polled every 3 seconds.
+    var call: (app: String?, since: Date) = (nil, Date())
+    var offered = false   // "Record this call?" already shown for the current call
 
     func applicationDidFinishLaunching(_ n: Notification) {
         item.menu = NSMenu()
         item.menu?.delegate = self
         item.button?.imagePosition = .imageLeading
-        UNUserNotificationCenter.current().delegate = self
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert]) { _, _ in }
+        defaults.register(defaults: ["detectCalls": true])
+        let center = UNUserNotificationCenter.current()
+        center.delegate = self
+        center.requestAuthorization(options: [.alert]) { _, _ in }
+        center.setNotificationCategories([UNNotificationCategory(identifier: "call", actions: [
+            UNNotificationAction(identifier: "record", title: "Record"),
+            UNNotificationAction(identifier: "ignore", title: "Never for This App"),
+        ], intentIdentifiers: [])])
+        Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { _ in
+            Task.detached {   // Core Audio queries stay off the main thread
+                let app = callApp(in: audioProcesses())
+                await self.tick(callApp: app)
+            }
+        }
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { _ in
             MainActor.assumeIsolated { self.stop(warning: "Stopped when the Mac went to sleep") }
         }
@@ -59,6 +76,22 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifica
         }
     }
 
+    /// Automation, for Shortcuts, Raycast, scripts or a keyboard shortcut (the dev build uses log-dev://):
+    ///   log://record?minutes=60   log://record-call   log://stop   log://show
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls {
+            switch url.host {
+            case "record":
+                let minutes = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "minutes" }?.value
+                record(minutes: min(max(minutes.flatMap(Int.init) ?? 60, 1), callMinutes))
+            case "record-call": recordCall()
+            case "stop": stop()
+            case "show": showRecordings()
+            default: break
+            }
+        }
+    }
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         stop()   // quitting, logging out or shutting down mid-call still saves the files
         guard let saving else { return .terminateNow }
@@ -66,9 +99,10 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifica
         return .terminateLater
     }
 
-    var timeLeft: String? {
-        guard state == .recording else { return nil }
-        let s = max(0, Int(endsAt.timeIntervalSinceNow.rounded(.up)))
+    /// Time left, or time so far for a recording that runs until the call ends.
+    var clock: String? {
+        guard state == .recording, let rec else { return nil }
+        let s = max(0, Int(rec.app == nil ? endsAt.timeIntervalSinceNow.rounded(.up) : rec.elapsed))
         return String(format: "%d:%02d", s / 3600, s % 3600 / 60)
     }
 
@@ -76,11 +110,11 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifica
     /// shared screen. The countdown is opt-in.
     func update() {
         guard let button = item.button else { return }
-        let left = timeLeft
-        button.image = left == nil ? icons.idle : icons.recording
+        let clock = clock
+        button.image = clock == nil ? icons.idle : icons.recording
         button.appearsDisabled = state == .saving
         var title = isDev ? " dev" : ""   // tells a development build apart from the installed app
-        if let left, defaults.bool(forKey: "showTimer") { title += " \(left)" }
+        if let clock, defaults.bool(forKey: "showTimer") { title += " \(clock)" }
         if warning != nil { title += " ⚠︎" }
         button.title = title
     }
@@ -95,13 +129,16 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifica
         switch state {
         case .idle:
             if let warning { add(warning); menu.addItem(.separator()) }
+            if let app = call.app { add("Record This \(app) Call", #selector(recordCall)); menu.addItem(.separator()) }
             for (title, mins) in [("30 minutes", 30), ("1 hour", 60), ("1½ hours", 90), ("2 hours", 120), ("2½ hours", 150)] {
                 add("Record \(title)", #selector(record), tag: mins)
             }
         case .starting: add("Starting…")
         case .recording:
             if let warning { add(warning) }
-            add("Recording \(rec?.screens == true ? "audio and screens" : "audio") · \(timeLeft ?? "") left")
+            let what = rec?.screens == true ? "audio and screens" : "audio"
+            if let app = rec?.app { add("Recording the \(app) call (\(what)) · stops when it ends") }
+            else { add("Recording \(what) · \(clock ?? "") left") }
             add("Stop now", #selector(stopNow), key: "s")
         case .saving: add("Saving…")
         }
@@ -110,12 +147,19 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifica
         add("Capture Screens (1 frame a second)", state == .idle ? #selector(toggleScreens) : nil,
             on: defaults.bool(forKey: "captureScreens"))
         add("Show Timer in Menu Bar", #selector(toggleTimer), on: defaults.bool(forKey: "showTimer"))
+        add("Detect Calls", #selector(toggleDetect), on: defaults.bool(forKey: "detectCalls"))
         if !isDev { add("Open at Login", #selector(toggleLogin), on: SMAppService.mainApp.status == .enabled) }
         menu.addItem(.separator())
         add("Quit \(name)", #selector(NSApplication.terminate), key: "q", target: NSApp)
     }
 
-    @objc func record(_ sender: NSMenuItem) {
+    @objc func record(_ sender: NSMenuItem) { record(minutes: sender.tag) }
+
+    @objc func recordCall() { if let app = call.app { record(minutes: callMinutes, app: app) } }
+
+    /// Starts recording for `minutes`; with a call `app`, it also stops when that call ends.
+    func record(minutes: Int, app: String? = nil) {
+        guard state == .idle else { return }
         let free = freeGB()
         guard free >= minFreeGB else {
             return alert("Not enough disk space to record",
@@ -123,16 +167,16 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifica
         }
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd_HH-mm-ss"
-        let r = Recorder(dir: library.appendingPathComponent(f.string(from: Date())), screens: defaults.bool(forKey: "captureScreens"))
+        let folder = f.string(from: Date()) + (app.map { " " + $0 } ?? "")
+        let r = Recorder(dir: library.appendingPathComponent(folder), screens: defaults.bool(forKey: "captureScreens"), app: app)
         r.onError = { error in Task { @MainActor in self.stop(warning: "Stopped early: \(error.localizedDescription)") } }
-        let minutes = sender.tag
-        rec = r; state = .starting; warning = nil; update()
+        rec = r; state = .starting; warning = nil; offered = true; update()
+        UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: ["call"])
         Task {
             do {
                 try await r.start()
                 endsAt = Date(timeIntervalSinceNow: Double(minutes) * 60)
                 state = .recording
-                ticker = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { _ in Task { @MainActor in self.tick() } }
             } catch {
                 try? await r.stop()
                 try? FileManager.default.removeItem(at: r.dir)
@@ -148,8 +192,20 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifica
         }
     }
 
-    func tick() {
+    func tick(callApp detected: String?) {
+        let app = defaults.bool(forKey: "detectCalls") ? detected : nil
+        if app != call.app {
+            call = (app, Date()); offered = false
+            UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: ["call"])
+        }
+        let lasted = -call.since.timeIntervalSinceNow
+        if state == .idle, let app, lasted >= 10, !offered, !ignored.contains(app) {   // ignore anything under 10 s
+            offered = true
+            notify("Record this \(app) call?", "Log records until the call ends.", id: "call", app: app)
+        }
+        guard state == .recording else { return }
         if endsAt.timeIntervalSinceNow <= 0 { stop() }
+        else if rec?.app != nil, call.app == nil, lasted >= 30 { stop() }   // the call ended (30 s rides out a muted mic)
         // No pop-up mid-call (it could appear on a shared screen): stop and flag it in the menu.
         else if freeGB() < minFreeGB { stop(warning: String(format: "Stopped early: less than %.0f GB of disk left", minFreeGB)) }
         else {
@@ -166,7 +222,6 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifica
     func stop(warning: String? = nil) {
         guard state == .recording, let r = rec else { return }
         state = .saving; self.warning = warning
-        ticker?.invalidate()
         update()
         let minutes = Int((r.elapsed / 60).rounded())
         let silent = r.silentSides()
@@ -187,6 +242,15 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifica
 
     @objc func toggleScreens() { defaults.set(!defaults.bool(forKey: "captureScreens"), forKey: "captureScreens") }
 
+    var ignored: [String] { defaults.stringArray(forKey: "ignoredCallApps") ?? [] }
+
+    /// Turning detection back on also forgets the apps marked "Never for This App".
+    @objc func toggleDetect() {
+        let on = !defaults.bool(forKey: "detectCalls")
+        defaults.set(on, forKey: "detectCalls")
+        if on { defaults.removeObject(forKey: "ignoredCallApps") }
+    }
+
     @objc func toggleTimer() { defaults.set(!defaults.bool(forKey: "showTimer"), forKey: "showTimer"); update() }
 
     @objc func toggleLogin() {
@@ -195,15 +259,24 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifica
     }
 
     /// Notifications stay hidden while the screen is shared or mirrored (a macOS default).
-    func notify(_ title: String, _ body: String) {
+    func notify(_ title: String, _ body: String, id: String = UUID().uuidString, app: String? = nil) {
         let content = UNMutableNotificationContent()
         content.title = title; content.body = body
-        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
+        if let app { content.categoryIdentifier = "call"; content.userInfo = ["app": app] }
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: id, content: content, trigger: nil))
     }
 
-    /// Clicking a notification shows the recording in Finder.
+    /// "Record this call?" records (by click or button) or ignores the app; any other
+    /// notification shows the recording in Finder.
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
-        await showRecordings()
+        let app = response.notification.request.content.userInfo["app"] as? String, action = response.actionIdentifier
+        await MainActor.run {
+            switch (app, action) {
+            case (let app?, "ignore"): defaults.set(ignored + [app], forKey: "ignoredCallApps")
+            case (let app?, _): record(minutes: callMinutes, app: app)
+            default: showRecordings()
+            }
+        }
     }
 
     func alert(_ title: String, _ text: String) {

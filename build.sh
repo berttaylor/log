@@ -7,7 +7,7 @@
 set -e
 cd "$(dirname "$0")"
 VERSION=1.0.1
-if [ "$1" = release ]; then NAME=Log ID=work.bertbert.log; else NAME="Log Dev" ID=work.bertbert.log.dev; fi
+if [ "$1" = release ]; then NAME=Log ID=work.bertbert.log SCHEME=log; else NAME="Log Dev" ID=work.bertbert.log.dev SCHEME=log-dev; fi
 APP="build/$NAME.app"
 rm -rf "$APP" build/Log.dmg && mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
@@ -39,6 +39,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <key>CFBundleVersion</key><string>$VERSION</string>
 <key>LSMinimumSystemVersion</key><string>15.0</string>
 <key>LSUIElement</key><true/>
+<key>CFBundleURLTypes</key><array><dict><key>CFBundleURLSchemes</key><array><string>$SCHEME</string></array></dict></array>
 <key>NSMicrophoneUsageDescription</key><string>Log records your side of the call from the microphone.</string>
 </dict></plist>
 PLIST
