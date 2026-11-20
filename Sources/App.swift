@@ -1,5 +1,6 @@
 import AppKit
 import ServiceManagement
+import UserNotifications
 
 /// Free space macOS can make available (includes purgeable space).
 func freeGB() -> Double {
@@ -15,7 +16,7 @@ let isDev = name != "Log"
 let library = URL.downloadsDirectory.appendingPathComponent(name)
 
 @MainActor
-final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
+final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotificationCenterDelegate {
     enum State { case idle, starting, recording, saving }
 
     let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -33,6 +34,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         item.menu = NSMenu()
         item.menu?.delegate = self
         item.button?.imagePosition = .imageLeading
+        UNUserNotificationCenter.current().delegate = self
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { _ in
             MainActor.assumeIsolated { self.stop(warning: "Stopped when the Mac went to sleep") }
         }
@@ -75,7 +77,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         button.appearsDisabled = state == .saving
         var title = isDev ? " dev" : ""   // tells a development build apart from the installed app
         if let left, defaults.bool(forKey: "showTimer") { title += " \(left)" }
-        else if left == nil, warning != nil { title += " ⚠︎" }
+        if warning != nil { title += " ⚠︎" }
         button.title = title
     }
 
@@ -94,6 +96,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
         case .starting: add("Starting…")
         case .recording:
+            if let warning { add(warning) }
             add("Recording \(rec?.screens == true ? "audio and screens" : "audio") · \(timeLeft ?? "") left")
             add("Stop now", #selector(stopNow), key: "s")
         case .saving: add("Saving…")
@@ -120,6 +123,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         r.onError = { error in Task { @MainActor in self.stop(warning: "Stopped early: \(error.localizedDescription)") } }
         let minutes = sender.tag
         rec = r; state = .starting; warning = nil; update()
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert]) { _, _ in }
         Task {
             do {
                 try await r.start()
@@ -145,7 +149,12 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if endsAt.timeIntervalSinceNow <= 0 { stop() }
         // No pop-up mid-call (it could appear on a shared screen): stop and flag it in the menu.
         else if freeGB() < minFreeGB { stop(warning: String(format: "Stopped early: less than %.0f GB of disk left", minFreeGB)) }
-        else { update() }
+        else {
+            // A ⚠︎ in the menu bar, never a pop-up, while either side has been silent for 2 minutes.
+            let quiet = rec?.quietSides(for: 120) ?? []
+            warning = quiet.isEmpty ? nil : "No sound from \(quiet.joined(separator: " or ")) for 2 minutes"
+            update()
+        }
     }
 
     @objc func stopNow() { stop() }
@@ -155,10 +164,15 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         state = .saving; self.warning = warning
         ticker?.invalidate()
         update()
+        let minutes = Int((r.elapsed / 60).rounded())
+        let silent = r.quietSides()
+        if warning == nil, !silent.isEmpty { self.warning = "Last recording has no sound from \(silent.joined(separator: " or "))" }
         saving = Task {
             do { try await r.stop() } catch { self.warning = "Some files couldn't be saved: \(error.localizedDescription)" }
             rec = nil; last = r.dir; saving = nil; state = .idle
             update()
+            notify("Saved \(minutes == 0 ? "a short" : "a \(minutes) min") recording",
+                   self.warning ?? "Both sides have sound.")
         }
     }
 
@@ -174,6 +188,18 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc func toggleLogin() {
         let s = SMAppService.mainApp
         if s.status == .enabled { try? s.unregister() } else { try? s.register() }
+    }
+
+    /// Notifications stay hidden while the screen is shared or mirrored (a macOS default).
+    func notify(_ title: String, _ body: String) {
+        let content = UNMutableNotificationContent()
+        content.title = title; content.body = body
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
+    }
+
+    /// Clicking a notification shows the recording in Finder.
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
+        await showRecordings()
     }
 
     func alert(_ title: String, _ text: String) {

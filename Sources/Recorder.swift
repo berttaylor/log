@@ -1,3 +1,4 @@
+import Accelerate
 import AVFoundation
 import CoreAudio
 import ScreenCaptureKit
@@ -79,6 +80,17 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sen
         if let failed { throw failed }
     }
 
+    var elapsed: Double { (hostNow() - start).seconds }
+
+    /// Sides of the call with no sound for the last `seconds`, or with no sound at all when
+    /// `seconds` is nil. A silent side means a muted mic, or call audio going somewhere Log can't hear.
+    func quietSides(for seconds: Double? = nil) -> [String] {
+        let now = elapsed
+        return q.sync { [("your microphone", me.lastSound), ("the other side", them.lastSound)] }
+            .filter { _, last in seconds.map { now - (last ?? 0) >= $0 } ?? (last == nil) }
+            .map(\.0)
+    }
+
     func stream(_ s: SCStream, didOutputSampleBuffer sb: CMSampleBuffer, of type: SCStreamOutputType) {
         guard sb.isValid, type != .screen else { return }
         (type == .audio ? them : me).write(sb, start: start)
@@ -94,6 +106,8 @@ final class Track {
     let url: URL
     var file: AVAudioFile?
     var written: AVAudioFramePosition = 0
+    /// Seconds from the start to the last buffer with sound in it; nil until there is some.
+    var lastSound: Double?
     init(_ url: URL) { self.url = url }
 
     func write(_ sb: CMSampleBuffer, start: CMTime) {
@@ -117,6 +131,12 @@ final class Track {
             }
             try? file.write(from: buf)
             written += AVAudioFramePosition(buf.frameLength)
+            if let samples = buf.floatChannelData?[0], buf.frameLength > 0 {
+                var peak: Float = 0
+                vDSP_maxmgv(samples, 1, &peak, vDSP_Length(buf.frameLength))
+                // -80 dBFS: below any working mic's noise floor, above the exact zeros of no playback
+                if peak > 1e-4 { lastSound = Double(written) / fmt.sampleRate }
+            }
         }
     }
 }

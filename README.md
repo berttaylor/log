@@ -63,6 +63,7 @@ Some details:
 
 - **Built-in mic first.** If your Mac has a built-in mic, Log uses it even when AirPods are connected. Recording from AirPods switches them to a lower-quality call mode, which would make the call sound worse for you.
 - **Screens stay readable.** Each display is recorded at its full resolution, up to 2560 pixels wide. One frame a second is enough to follow slides, code and documents, and it keeps an hour of video small.
+- **Checks both sides are heard.** If your mic or the other side stays silent for 2 minutes, a ⚠︎ appears next to the icon (never a pop-up, so nothing shows on a shared screen). When you stop, a notification says whether both sides have sound. Click it to open the recording.
 - **Safe with your disk.** Log won't start with less than 5 GB free, and it stops and saves if space drops below that during a call.
 - **Safe when things go wrong.** Quitting, logging out, shutting down or putting the Mac to sleep mid-call saves everything recorded so far. If Log crashes or the Mac loses power, Log finishes the recording the next time it opens.
 - **Open at login** is off until you turn it on in the menu.

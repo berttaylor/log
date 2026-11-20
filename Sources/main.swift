@@ -18,6 +18,7 @@ func test(seconds: Double, screens: Bool) {
     Task {
         do { try await r.start() } catch { print("start failed: \(error)"); exit(1) }
         try await Task.sleep(for: .seconds(seconds))
+        print("silent:", r.quietSides())
         do { try await r.stop() } catch { print("save failed: \(error)") }
         print(r.dir.path)
         exit(0)
