@@ -62,6 +62,7 @@ Each recording gets its own folder:
 ```
 ~/Downloads/Log/2026-11-19_14-30-00 Zoom/
   Call.mp4         the whole call in one file: every screen side by side, both voices
+  transcript.md    who said what, with timestamps (macOS 26 or later)
   meta.json        when it started, how long it ran, which app, which mic, which files
   tracks/
     me.m4a         your microphone on its own
@@ -73,6 +74,8 @@ Each recording gets its own folder:
 Without Capture Screens, the folder has `Call.m4a` instead of `Call.mp4`.
 
 `Call.mp4` is the file to watch, or to hand to an AI model: nothing is cropped or scaled down, so every screen stays readable. The separate tracks are there for transcription (your voice and theirs never overlap in one file) and for editing.
+
+**Transcripts.** On macOS 26 or later, Log writes `transcript.md` a few minutes after each call, on your Mac, using Apple's speech recognition. Your voice and theirs come from separate tracks, so every line is labelled **Me** or **Them** without guessing, and when you use speakers, the copy of their voice your mic picks up is left out. It's good for skimming, searching (Spotlight finds it) and giving an agent a cheap overview. For the most accurate transcript, give `Call.mp4` or the tracks to a larger speech model. macOS downloads its speech model the first time; after that it works offline. Switch it off with **Write Transcripts**.
 
 Some details:
 
