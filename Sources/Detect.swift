@@ -2,7 +2,8 @@ import CoreAudio
 
 /// Finds a call by asking Core Audio which apps have the microphone open. Only known call apps
 /// count, so dictation apps (Wispr Flow, Superwhisper), Siri and Voice Memos never do. A browser
-/// counts only while it is also playing sound, as a call does and dictation doesn't. Log's own
+/// counts only while it is also playing sound, as a call does; voice typing in a browser while
+/// another tab plays music would still count, and Log only asks, so that is harmless. Log's own
 /// capture runs in macOS's com.apple.replayd, which is on no list.
 let callApps: [(name: String, ids: [String], browser: Bool)] = [
     ("Zoom", ["us.zoom."], false),
