@@ -181,7 +181,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifica
             for dir in recent { add(title(of: dir), #selector(reveal), object: dir, to: list) }
         }
         add("Show Recordings", #selector(showRecordings))
-        if latestTranscript() != nil { add("Copy Last Call for AI", #selector(copyForAI)) }
+        if let newest = recent.first, exists(newest.appendingPathComponent("transcript.md")) { add("Copy Last Call for AI", #selector(copyForAI)) }
         add("Copy Consent Message", #selector(copyConsent))
         menu.addItem(.separator())
         let settings = submenu("Settings")
@@ -226,19 +226,18 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifica
 
     @objc func copyConsent() { copy(App.consent) }
 
-    /// The newest transcript with a prompt, to paste into any AI chat. A large model summarises
-    /// far better than the small one on this Mac, and works in any language.
+    /// The newest call's transcript with a prompt, to paste into any AI chat. A large model
+    /// summarises far better than the small one on this Mac.
     @objc func copyForAI() {
-        guard let url = latestTranscript(), let transcript = try? String(contentsOf: url, encoding: .utf8) else { return }
+        guard let url = recentRecordings().first?.appendingPathComponent("transcript.md"),
+              let transcript = try? String(contentsOf: url, encoding: .utf8) else {
+            return notify("No transcript to copy", "The newest recording has no transcript yet.")
+        }
         copy("""
             Here is the transcript of a call I recorded. "Me" is me and "Them" is everyone else; ⚑ marks moments \
             I flagged as important. Summarise the call, list the decisions and the action items (who, what, by \
             when), and point out anything I should follow up on.
             """ + "\n\n" + transcript)
-    }
-
-    func latestTranscript() -> URL? {
-        recentRecordings().lazy.map { $0.appendingPathComponent("transcript.md") }.first(where: exists)
     }
 
     func copy(_ text: String) {

@@ -81,9 +81,9 @@ Each recording gets its own folder:
 
 Without Capture Screens, the folder has `Call.m4a` instead of `Call.mp4`.
 
-`Call.mp4` is the file to watch, or to hand to an AI model: nothing is cropped or scaled down, so every screen stays readable. The separate tracks are there for transcription (your voice and theirs never overlap in one file) and for editing.
+`Call.mp4` is the file to watch, or to hand to an AI model: nothing is cropped, and each display keeps its full resolution up to 2560 pixels wide, so text stays readable. The separate tracks are there for transcription (your voice and theirs never overlap in one file) and for editing.
 
-**Transcripts.** On macOS 26 or later, Log writes `transcript.md` a few minutes after each call, on your Mac, using Apple's speech recognition. Your voice and theirs come from separate tracks, so every line is labelled **Me** or **Them** without guessing, and when you use speakers, the copy of their voice your mic picks up is left out. It's good for skimming, searching (Spotlight finds it) and giving an agent a cheap overview. For the most accurate transcript, give `Call.mp4` or the tracks to a larger speech model. macOS downloads its speech model the first time; after that it works offline. Switch it off with **Write Transcripts**.
+**Transcripts.** On macOS 26 or later, Log writes `transcript.md` a few minutes after each call, on your Mac, using Apple's speech recognition. Your voice and theirs come from separate tracks, so every line is labelled **Me** or **Them** without guessing. When you use speakers, most of the echo of their voice that your mic picks up is removed; a short phrase can slip through. It's good for skimming, searching (Spotlight finds it) and giving an agent a cheap overview. For the most accurate transcript, give `Call.mp4` or the tracks to a larger speech model. macOS downloads its speech model the first time; after that it works offline. Switch it off with **Write Transcripts**.
 
 Some details:
 
@@ -131,7 +131,7 @@ build/Log\ Dev.app/Contents/MacOS/Log --test 10 screens
 
 This records 10 seconds to `~/Downloads/Log Dev/test/` and prints the folder. macOS treats the recording as coming from your terminal app, so the terminal needs the same two permissions.
 
-Log uses ScreenCaptureKit for screens, system audio and the mic, and AVFoundation to write the files. Everything stays on your Mac. Log has no network code, analytics or accounts.
+Log uses ScreenCaptureKit for screens, system audio and the mic, and AVFoundation to write the files. Everything stays on your Mac. Log has no analytics or accounts, and its only network use is macOS downloading its speech model once for transcripts.
 
 ## Recording other people
 
