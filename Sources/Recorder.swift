@@ -10,7 +10,7 @@ func hostNow() -> CMTime { CMClockGetTime(CMClockGetHostTimeClock()) }
 /// every display. All files share one time zero, the moment recording started.
 /// Shared state is touched only on `q` (audio) or each writer's own queue (screens).
 final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
-    let dir: URL, screens: Bool
+    let dir: URL, screens: Bool, app: String?
     let me: Track, them: Track
     var onError: ((Error) -> Void)?
     private let q = DispatchQueue(label: "log.audio")
@@ -18,8 +18,8 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sen
     private var audio: SCStream?
     private var screenStreams: [(SCStream, ScreenWriter)] = []
 
-    init(dir: URL, screens: Bool) {
-        self.dir = dir; self.screens = screens
+    init(dir: URL, screens: Bool, app: String? = nil) {
+        self.dir = dir; self.screens = screens; self.app = app
         let tracks = dir.appendingPathComponent("tracks")
         me = Track(tracks.appendingPathComponent("me.caf")); them = Track(tracks.appendingPathComponent("them.caf"))
     }
@@ -42,7 +42,7 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sen
         let mics = AVCaptureDevice.DiscoverySession(deviceTypes: [.microphone], mediaType: .audio, position: .unspecified).devices
         let mic = mics.first { UInt32(bitPattern: $0.transportType) == kAudioDeviceTransportTypeBuiltIn } ?? AVCaptureDevice.default(for: .audio)
         cfg.microphoneCaptureDeviceID = mic?.uniqueID
-        try Meta(started: Date(), microphone: mic?.localizedName).write(dir)
+        try Meta(started: Date(), app: app, microphone: mic?.localizedName).write(dir)
         let s = SCStream(filter: SCContentFilter(display: main, excludingWindows: []), configuration: cfg, delegate: self)
         for type in [SCStreamOutputType.screen, .audio, .microphone] { try s.addStreamOutput(self, type: type, sampleHandlerQueue: q) }
         try await s.startCapture()

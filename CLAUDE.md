@@ -1,6 +1,6 @@
 # Log
 
-macOS menu bar app that records both sides of a call. App code is in `Sources/`: `main.swift` (entry point, terminal modes), `App.swift` (menu bar UI and state), `Recorder.swift` (capture), `Files.swift` (turning raw captures into finished files). `build.sh` builds the app; there is no Xcode project and there are no dependencies.
+macOS menu bar app that records both sides of a call. App code is in `Sources/`: `main.swift` (entry point, terminal modes), `App.swift` (menu bar UI and state), `Recorder.swift` (capture), `Files.swift` (turning raw captures into finished files), `Detect.swift` (which call app is using the mic). `build.sh` builds the app; there is no Xcode project and there are no dependencies.
 
 The competitive analysis, feature spec (M1-M11, L1-L7) and release plan are in `docs/ROADMAP.md`. Build features in its release order, and keep to its "what not to build" list.
 
@@ -19,6 +19,10 @@ The owner runs the released Log from /Applications every day while developing in
 - Crash safety: start `--test 60 screens` in the background, `kill -9` it after ~20 s, then run `--recover`. The `.caf` tracks and `.mov` screens must still play, and `--recover` must produce the `.m4a` files.
 - Check audio with `afinfo` or `ffprobe`. In `call.m4a`, the left channel is `me.m4a` and the right is `them.m4a`.
 - The menu bar UI can't be checked from the terminal: ask the owner to look.
+
+- `--check` runs the self-checks (call detection rules) and lists apps using audio right now.
+- To test call detection end to end without a real call: build a fake app bundle with a bundle id starting `us.zoom.` whose binary opens the mic (AVAudioEngine input tap), run its binary from the terminal so it inherits the terminal's mic permission, run the dev app's binary from the terminal too, then `open "log-dev://record-call"`. The dev build uses the `log-dev://` scheme.
+- Low disk blocks recording (default 5 GB). For testing: `defaults write work.bertbert.log.dev minFreeGB -float 1`.
 
 ## Releasing
 

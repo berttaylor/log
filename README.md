@@ -42,18 +42,27 @@ Turn on **Capture Screens** and Log also records every display you have connecte
 
 ## How it works
 
-1. Click the log icon in the menu bar.
-2. Choose how long to record: 30 minutes up to 2½ hours. Log stops on its own when the time is up, or when you click **Stop now**.
-3. Click **Show Recordings** to find the files.
+**When a call starts,** Log notices and asks "Record this Zoom call?" Click **Record** and it records until the call ends, then stops by itself. It works with Zoom, Teams, FaceTime, Slack, Discord, WhatsApp, Webex, Signal, Telegram, and calls in Chrome, Safari, Firefox, Edge, Arc and Brave. Dictation apps like Wispr Flow or Superwhisper, Siri and voice memos also use the mic, but they never trigger it. Choose **Never for This App** to stop being asked about one app, or switch off **Detect Calls** in the menu.
 
-While recording, the icon fills in. Nothing else changes, so it gives nothing away if you're sharing your screen. You can turn on **Show Timer in Menu Bar** to see a countdown.
+**Or record by hand:** click the log icon and choose how long to record, from 30 minutes to 2½ hours. Log stops when the time is up, or when you click **Stop now**. **Show Recordings** opens the folder.
+
+While recording, the icon fills in. Nothing else changes, so it gives nothing away if you're sharing your screen. **Show Timer in Menu Bar** adds a clock.
+
+**Automation.** Shortcuts, Raycast, scripts or a keyboard shortcut can drive Log through links:
+
+```sh
+open "log://record?minutes=60"   # record for an hour
+open "log://record-call"         # record the call that's happening now, until it ends
+open "log://stop"
+open "log://show"                # open the latest recording
+```
 
 Each recording gets its own folder:
 
 ```
-~/Downloads/Log/2026-11-19_14-30-00/
+~/Downloads/Log/2026-11-19_14-30-00 Zoom/
   Call.mp4         the whole call in one file: every screen side by side, both voices
-  meta.json        when it started, how long it ran, which mic, which files
+  meta.json        when it started, how long it ran, which app, which mic, which files
   tracks/
     me.m4a         your microphone on its own
     them.m4a       everything your Mac played, on its own
