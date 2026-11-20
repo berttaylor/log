@@ -1,5 +1,28 @@
 # Sell Log as the recorder, not the notetaker
 
+## Status, 20 November 2026
+
+Built and merged (PRs #1 to #7):
+
+| Item | State |
+|---|---|
+| M1 crash-safe tracks | Done. Raw PCM `.caf` audio and 5 s movie fragments; tested with `kill -9`, recovered on next launch. |
+| M2 save on stream failure and sleep | Done. |
+| M3 health check | Done, simplified: a side never heard after 2 minutes shows ⚠︎; the notification at stop says whether both sides were heard. Quiet stretches later in a call are normal, so they aren't flagged. |
+| M4 consent | Done: first-launch note, Copy Consent Message. The icon fills while recording. |
+| M5 call detection | Done, with the allowlist, 10 s minimum and browser audio rules. Auto-stop waits 30 s after the call app releases the mic. Tested with a stand-in app holding the mic; Wispr Flow's helper (which holds the mic permanently) is ignored. |
+| M6 mic picker | Done. |
+| M7 folders, meta.json, recents | Done. Folder names end with the call app (`… Zoom`). |
+| M8 URL scheme | Done: `record`, `record-call`, `mark`, `stop`, `show`, `copy-for-ai`. The dev build uses `log-dev://`. |
+| M9 App Store build | Not possible without an Apple Developer account. Tested locally with an ad-hoc sandboxed build: call detection and saving to Downloads work inside the sandbox. The side-by-side video export is much slower when sandboxed (52 s on the first run while Metal compiles its shaders, 28 s after, for a 3 s test that takes about 5 s unsandboxed); profile it before submission. |
+| M10 transcripts | Done (macOS 26+). |
+| M11 one file to watch | Done: `Call.mp4` (every display side by side, HEVC) or `Call.m4a`, separate sources in `tracks/`. |
+| Extras from rivals | Marks during a call (⌃⌥⌘M, menu, `log://mark`) saved in `meta.json` and the transcript; ⌃⌥⌘R to start and stop; Start Recording, which runs until stopped (4 h cap); Copy Last Call for AI. |
+| L4 summaries | Decided against. Apple's on-device model, tested on a sample call, took 29 s, swapped who owed which action and missed two of six action items. Copy Last Call for AI hands the transcript to a better model instead. |
+| L1, L2, L3, L5, L6, L7 | Not started. L2 (per-app capture) is risky: FaceTime audio plays through a system service, not the app. |
+
+See [FEATURES.md](FEATURES.md) for the key feature rating against rivals. The plan below is the original research; where names differ (`screen-N.mp4`, `log://start`), the shipped names in the README win.
+
 Log can become a paid app worth €5-10, but not by turning into another AI notetaker. By late 2026 nearly every notetaker records without a bot, and almost all of them throw the audio away. Nobody else combines what Log already does: raw audio kept as plain local files, separate aligned "me" and "them" tracks plus a stereo mix, no network use, an MIT licence and a one-off price. The paid 1.x therefore needs fewer features than it might seem. First, it must never lose a call: today an unclean exit can leave unplayable files, and calls can be recorded silently. Second, it must notice calls and handle consent in the way App Review guideline 2.5.14 and the current lawsuits against Granola and Otter demand. Third, it must pass the Mac App Store sandbox. Finally, it should add a local "Me/Them" transcript that comes almost free from the separate tracks. Direct one-off rivals sell plain recorders for $9-15 and a two-track recorder with transcription for $19.99. That supports launching at €4.99 as a recorder and moving to €7.99 once transcripts ship. The free GitHub build stays identical, as Maccy does. The plan below does this in five small releases, each shippable on its own, and leaves summaries, diarization, per-app capture and Core Audio taps for 2.x.
 
 ## Most notetakers now record without a bot and then delete the audio

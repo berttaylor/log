@@ -48,6 +48,8 @@ Turn on **Capture Screens** (under **Settings**) and Log also records every disp
 
 **Mark moments.** Press **⌃⌥⌘M** (or **Mark This Moment** in the menu) when something matters. Marks are saved in `meta.json` and show up in the transcript as **⚑ 12:04 marked**, so you or an agent can jump straight to them.
 
+**Hand it to AI.** **Copy Last Call for AI** puts the newest transcript on the clipboard with a prompt asking for a summary, decisions and action items. Paste it into Claude, ChatGPT or any other chatbot. A large model does this far better than anything that fits on a laptop.
+
 **Asking first.** **Copy Consent Message** puts a short note on the clipboard to paste into the call's chat: *"Just so you know, I'm recording this call so I can go back over it later. Let me know if you'd rather I didn't."*
 
 While recording, the icon fills in. Nothing else changes, so it gives nothing away if you're sharing your screen. **Show Timer in Menu Bar** adds a clock.
@@ -60,6 +62,7 @@ open "log://record-call"         # record the call that's happening now, until i
 open "log://mark"                # mark this moment
 open "log://stop"
 open "log://show"                # open the latest recording
+open "log://copy-for-ai"         # copy the latest transcript with a prompt
 ```
 
 Each recording gets its own folder:
@@ -78,9 +81,9 @@ Each recording gets its own folder:
 
 Without Capture Screens, the folder has `Call.m4a` instead of `Call.mp4`.
 
-`Call.mp4` is the file to watch, or to hand to an AI model: nothing is cropped or scaled down, so every screen stays readable. The separate tracks are there for transcription (your voice and theirs never overlap in one file) and for editing.
+`Call.mp4` is the file to watch, or to hand to an AI model: nothing is cropped, and each display keeps its full resolution up to 2560 pixels wide, so text stays readable. The separate tracks are there for transcription (your voice and theirs never overlap in one file) and for editing.
 
-**Transcripts.** On macOS 26 or later, Log writes `transcript.md` a few minutes after each call, on your Mac, using Apple's speech recognition. Your voice and theirs come from separate tracks, so every line is labelled **Me** or **Them** without guessing, and when you use speakers, the copy of their voice your mic picks up is left out. It's good for skimming, searching (Spotlight finds it) and giving an agent a cheap overview. For the most accurate transcript, give `Call.mp4` or the tracks to a larger speech model. macOS downloads its speech model the first time; after that it works offline. Switch it off with **Write Transcripts**.
+**Transcripts.** On macOS 26 or later, Log writes `transcript.md` a few minutes after each call, on your Mac, using Apple's speech recognition. Your voice and theirs come from separate tracks, so every line is labelled **Me** or **Them** without guessing. When you use speakers, most of the echo of their voice that your mic picks up is removed; a short phrase can slip through. It's good for skimming, searching (Spotlight finds it) and giving an agent a cheap overview. For the most accurate transcript, give `Call.mp4` or the tracks to a larger speech model. macOS downloads its speech model the first time; after that it works offline. Switch it off with **Write Transcripts**.
 
 Some details:
 
@@ -90,6 +93,10 @@ Some details:
 - **Safe with your disk.** Log won't start with less than 5 GB free, and it stops and saves if space drops below that during a call.
 - **Safe when things go wrong.** Quitting, logging out, shutting down or putting the Mac to sleep mid-call saves everything recorded so far. If Log crashes or the Mac loses power, Log finishes the recording the next time it opens.
 - **Settings.** Capture Screens, Microphone, Detect Calls, Write Transcripts, Show Timer in Menu Bar and Open at Login (off until you turn it on) are under **Settings** in the menu.
+
+## Compared with other recorders
+
+See the [key feature rating](docs/FEATURES.md) for how Log compares with Granola, Otter, Fathom, Krisp, MacWhisper, Audio Hijack and others.
 
 ## Install
 
@@ -124,7 +131,7 @@ build/Log\ Dev.app/Contents/MacOS/Log --test 10 screens
 
 This records 10 seconds to `~/Downloads/Log Dev/test/` and prints the folder. macOS treats the recording as coming from your terminal app, so the terminal needs the same two permissions.
 
-Log uses ScreenCaptureKit for screens, system audio and the mic, and AVFoundation to write the files. Everything stays on your Mac. Log has no network code, analytics or accounts.
+Log uses ScreenCaptureKit for screens, system audio and the mic, and AVFoundation to write the files. Everything stays on your Mac. Log has no analytics or accounts, and its only network use is macOS downloading its speech model once for transcripts.
 
 ## Recording other people
 
