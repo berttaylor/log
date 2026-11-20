@@ -35,6 +35,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifica
         item.menu?.delegate = self
         item.button?.imagePosition = .imageLeading
         UNUserNotificationCenter.current().delegate = self
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert]) { _, _ in }
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { _ in
             MainActor.assumeIsolated { self.stop(warning: "Stopped when the Mac went to sleep") }
         }
@@ -46,6 +47,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifica
         Task.detached {
             let recovered = interrupted.filter { (try? finish($0)) != nil }
             await MainActor.run {
+                guard self.state == .idle else { return }   // don't cover a live recording's status
                 self.last = recovered.last ?? self.last
                 self.warning = recovered.count == interrupted.count
                     ? "Recovered \(recovered.count == 1 ? "an interrupted recording" : "\(recovered.count) interrupted recordings")"
@@ -123,7 +125,6 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifica
         r.onError = { error in Task { @MainActor in self.stop(warning: "Stopped early: \(error.localizedDescription)") } }
         let minutes = sender.tag
         rec = r; state = .starting; warning = nil; update()
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert]) { _, _ in }
         Task {
             do {
                 try await r.start()
@@ -150,9 +151,10 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifica
         // No pop-up mid-call (it could appear on a shared screen): stop and flag it in the menu.
         else if freeGB() < minFreeGB { stop(warning: String(format: "Stopped early: less than %.0f GB of disk left", minFreeGB)) }
         else {
-            // A ⚠︎ in the menu bar, never a pop-up, while either side has been silent for 2 minutes.
-            let quiet = rec?.quietSides(for: 120) ?? []
-            warning = quiet.isEmpty ? nil : "No sound from \(quiet.joined(separator: " or ")) for 2 minutes"
+            // After 2 minutes, a side that has never had sound means broken capture: show a ⚠︎ in
+            // the menu bar (never a pop-up). Quiet stretches later in a call are normal.
+            let silent = (rec?.elapsed ?? 0) >= 120 ? rec?.silentSides() ?? [] : []
+            warning = silent.isEmpty ? nil : "No sound from \(silent.joined(separator: " or ")) yet"
             update()
         }
     }
@@ -165,14 +167,14 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifica
         ticker?.invalidate()
         update()
         let minutes = Int((r.elapsed / 60).rounded())
-        let silent = r.quietSides()
+        let silent = r.silentSides()
         if warning == nil, !silent.isEmpty { self.warning = "Last recording has no sound from \(silent.joined(separator: " or "))" }
         saving = Task {
             do { try await r.stop() } catch { self.warning = "Some files couldn't be saved: \(error.localizedDescription)" }
             rec = nil; last = r.dir; saving = nil; state = .idle
             update()
             notify("Saved \(minutes == 0 ? "a short" : "a \(minutes) min") recording",
-                   self.warning ?? "Both sides have sound.")
+                   self.warning ?? "You and the other side were both heard.")
         }
     }
 
