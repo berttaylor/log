@@ -24,9 +24,12 @@ func markdown(_ lines: [Line], title: String) -> String {
     var out = "# \(title)", speaker = "", end = 0.0
     for line in lines {
         defer { end = line.end }
+        let s = Int(line.start)
+        if line.speaker.isEmpty {   // a mark from Mark This Moment
+            out += String(format: "\n\n**⚑ %d:%02d marked**", s / 60, s % 60); speaker = ""; continue
+        }
         if line.speaker == speaker, line.start - end <= 10 { out += " " + line.text; continue }
         speaker = line.speaker
-        let s = Int(line.start)
         out += String(format: "\n\n**%d:%02d %@:** ", s / 60, s % 60, line.speaker) + line.text
     }
     return out + "\n"
@@ -44,8 +47,9 @@ func transcribe(_ dir: URL) async throws {
     let tracks = dir.appendingPathComponent("tracks")
     async let me = speech(in: tracks.appendingPathComponent("me.m4a"), speaker: "Me", locale: locale)
     async let them = speech(in: tracks.appendingPathComponent("them.m4a"), speaker: "Them", locale: locale)
-    let lines = merge(me: await me, them: await them)
     let meta = Meta.read(dir)
+    let marks = (meta?.marks ?? []).map { Line(start: $0, end: $0, speaker: "", text: "") }
+    let lines = (merge(me: await me, them: await them) + marks).sorted { $0.start < $1.start }
     var title = meta?.app.map { "\($0) call" } ?? "Call"
     if let started = meta?.started { title += ", " + started.formatted(date: .abbreviated, time: .shortened) }
     try markdown(lines, title: title).write(to: dir.appendingPathComponent("transcript.md"), atomically: true, encoding: .utf8)
@@ -67,8 +71,11 @@ func speech(in url: URL, speaker: String, locale: Locale) async -> [Line] {
         }
     }
     defer { lines.cancel() }
-    do { try await SpeechAnalyzer(modules: [transcriber]).start(inputAudioFile: file, finishAfterFile: true) } catch { return [] }
-    return (try? await lines.value) ?? []
+    let analyzer = SpeechAnalyzer(modules: [transcriber])   // must live until the results end
+    do { try await analyzer.start(inputAudioFile: file, finishAfterFile: true) } catch { return [] }
+    let result = (try? await lines.value) ?? []
+    withExtendedLifetime(analyzer) {}
+    return result
 }
 
 /// Saved recordings without a transcript, for example because Log quit while writing it.

@@ -1,6 +1,6 @@
 # Log
 
-macOS menu bar app that records both sides of a call. App code is in `Sources/`: `main.swift` (entry point, terminal modes), `App.swift` (menu bar UI and state), `Recorder.swift` (capture), `Files.swift` (turning raw captures into finished files), `Detect.swift` (which call app is using the mic), `Transcribe.swift` (transcript.md, macOS 26+). `build.sh` builds the app; there is no Xcode project and there are no dependencies.
+macOS menu bar app that records both sides of a call. App code is in `Sources/`: `main.swift` (entry point, terminal modes), `App.swift` (menu bar UI and state), `Recorder.swift` (capture), `Files.swift` (turning raw captures into finished files), `Detect.swift` (which call app is using the mic), `Transcribe.swift` (transcript.md, macOS 26+), `Hotkeys.swift` (⌃⌥⌘R, ⌃⌥⌘M). `build.sh` builds the app; there is no Xcode project and there are no dependencies.
 
 The competitive analysis, feature spec (M1-M11, L1-L7) and release plan are in `docs/ROADMAP.md`. Build features in its release order, and keep to its "what not to build" list.
 
@@ -23,6 +23,7 @@ The owner runs the released Log from /Applications every day while developing in
 - `--test 12 transcript` also writes transcript.md; play speech with `say` during it to check labels and echo removal.
 - `--check` runs the self-checks (call detection rules, transcript merging) and lists apps using audio right now.
 - To test call detection end to end without a real call: build a fake app bundle with a bundle id starting `us.zoom.` whose binary opens the mic (AVAudioEngine input tap), run its binary from the terminal so it inherits the terminal's mic permission, run the dev app's binary from the terminal too, then `open "log-dev://record-call"`. The dev build uses the `log-dev://` scheme.
+- Before driving the dev app from the terminal, run `defaults write work.bertbert.log.dev consentShown -bool true`, or the one-time consent alert blocks it. `open log-dev://record?minutes=1`, `log-dev://mark` and `log-dev://stop` drive a recording.
 - Low disk blocks recording (default 5 GB). For testing: `defaults write work.bertbert.log.dev minFreeGB -float 1`.
 
 ## Releasing
