@@ -2,8 +2,7 @@
 // and what your microphone hears as aligned tracks, plus, optionally, every screen at
 // one frame a second.
 //
-// Files go to ~/Downloads/Log/<date-time>/: me.m4a, them.m4a, call.m4a (you left, them right)
-// and screen-1.mov, screen-2.mov, ... when screens are on.
+// Each recording gets a folder in ~/Downloads/Log: see Files.swift for its layout.
 //
 // Build: ./build.sh. From a terminal ("build/Log Dev.app/Contents/MacOS/Log"):
 //   --test <seconds> [screens]   records, stops and prints the folder
@@ -33,8 +32,10 @@ MainActor.assumeIsolated {
     switch args.first {
     case "--test": test(seconds: Double(args.dropFirst().first ?? "") ?? 5, screens: args.contains("screens"))
     case "--recover":
-        for dir in interruptedRecordings() { print(dir.path, (try? finish(dir)) == nil ? "failed" : "recovered") }
-        exit(0)
+        Task {
+            for dir in interruptedRecordings() { print(dir.path, (try? await finish(dir)) == nil ? "failed" : "recovered") }
+            exit(0)
+        }
     default: delegate = App(); app.delegate = delegate
     }
     withExtendedLifetime(delegate) { app.run() }
