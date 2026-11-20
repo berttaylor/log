@@ -13,7 +13,8 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sen
     let dir: URL, screens: Bool, app: String?, mic: String?
     private(set) var marks: [Double] = []
     let me: Track, them: Track
-    var onError: ((Error) -> Void)?
+    var onError: ((Error) -> Void)?   // the audio capture stopped: the recording ends
+    var onScreenLost: (() -> Void)?   // one display stopped (unplugged, say): audio carries on
     private let q = DispatchQueue(label: "log.audio")
     private var start = CMTime.zero
     private var audio: SCStream?
@@ -58,7 +59,7 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sen
             c.minimumFrameInterval = CMTime(value: 1, timescale: 1)
             let writer = try ScreenWriter(url: dir.appendingPathComponent("tracks/screen-\(i + 1).mov"),
                                           width: c.width, height: c.height, start: start)
-            let vs = SCStream(filter: SCContentFilter(display: d, excludingWindows: []), configuration: c, delegate: nil)
+            let vs = SCStream(filter: SCContentFilter(display: d, excludingWindows: []), configuration: c, delegate: self)
             try vs.addStreamOutput(writer, type: .screen, sampleHandlerQueue: writer.queue)
             screenStreams.append((vs, writer))   // before starting, so stop() can always finish it
             try await vs.startCapture()
@@ -99,7 +100,7 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sen
         (type == .audio ? them : me).write(sb, start: start)
     }
 
-    func stream(_ s: SCStream, didStopWithError error: Error) { onError?(error) }
+    func stream(_ s: SCStream, didStopWithError error: Error) { s === audio ? onError?(error) : onScreenLost?() }
 }
 
 func microphones() -> [AVCaptureDevice] {

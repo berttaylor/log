@@ -17,7 +17,7 @@ The owner runs the released Log from /Applications every day while developing in
 
 - Build, then run `"build/Log Dev.app/Contents/MacOS/Log" --test 5 screens` records 5 seconds to `~/Downloads/Log Dev/test/` and prints the folder. It needs Microphone and Screen & System Audio Recording permission for the terminal app.
 - Crash safety: start `--test 60 screens` in the background, `kill -9` it after ~20 s, then run `--recover`. The `.caf` tracks and `.mov` screens must still play, and `--recover` must produce the `.m4a` files.
-- Check audio with `afinfo` or `ffprobe`. In `call.m4a`, the left channel is `me.m4a` and the right is `them.m4a`.
+- Check audio with `afinfo` or `ffprobe`. `Call.m4a` (or the audio in `Call.mp4`) is a mono mix of both voices; check each side in `tracks/me.m4a` and `tracks/them.m4a`.
 - The menu bar UI can't be checked from the terminal: ask the owner to look.
 
 - `--test 12 transcript` also writes transcript.md; play speech with `say` during it to check labels and echo removal.

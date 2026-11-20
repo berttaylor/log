@@ -60,11 +60,17 @@ func finish(_ dir: URL) async throws {
     for file in raw { try FileManager.default.removeItem(at: file) }
 }
 
-/// Recordings Log was killed in the middle of: they still have raw tracks. Oldest first.
-func interruptedRecordings() -> [URL] {
-    let dirs = (try? FileManager.default.contentsOfDirectory(at: library, includingPropertiesForKeys: nil)) ?? []
-    return dirs.filter { dir in ["me.caf", "them.caf"].contains { exists(dir.appendingPathComponent("tracks/" + $0)) } }
+/// Every recording folder, oldest first (their names start with the date). With `test: false`,
+/// the terminal test's folder is left out.
+func recordings(test: Bool = true) -> [URL] {
+    ((try? FileManager.default.contentsOfDirectory(at: library, includingPropertiesForKeys: nil)) ?? [])
+        .filter { (test || $0.lastPathComponent != "test") && exists(Meta.url($0)) }
         .sorted { $0.lastPathComponent < $1.lastPathComponent }
+}
+
+/// Recordings Log was killed in the middle of: they still have raw tracks.
+func interruptedRecordings() -> [URL] {
+    recordings().filter { dir in ["me.caf", "them.caf"].contains { exists(dir.appendingPathComponent("tracks/" + $0)) } }
 }
 
 /// Re-encodes an audio file as AAC in .m4a.

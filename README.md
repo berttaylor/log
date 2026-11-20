@@ -81,7 +81,7 @@ Each recording gets its own folder:
 
 Without Capture Screens, the folder has `Call.m4a` instead of `Call.mp4`.
 
-`Call.mp4` is the file to watch, or to hand to an AI model: nothing is cropped, and each display keeps its full resolution up to 2560 pixels wide, so text stays readable. The separate tracks are there for transcription (your voice and theirs never overlap in one file) and for editing.
+`Call.mp4` is the file to watch, or to hand to an AI model: nothing is cropped, and each display keeps its full resolution up to 2560 pixels wide (the whole row is scaled down only past 8192 pixels, the video format's limit), so text stays readable. The separate tracks are there for transcription (your voice and theirs never overlap in one file) and for editing.
 
 **Transcripts.** On macOS 26 or later, Log writes `transcript.md` a few minutes after each call, on your Mac, using Apple's speech recognition. Your voice and theirs come from separate tracks, so every line is labelled **Me** or **Them** without guessing. When you use speakers, most of the echo of their voice that your mic picks up is removed; a short phrase can slip through. It's good for skimming, searching (Spotlight finds it) and giving an agent a cheap overview. For the most accurate transcript, give `Call.mp4` or the tracks to a larger speech model. macOS downloads its speech model the first time; after that it works offline. Switch it off with **Write Transcripts**.
 

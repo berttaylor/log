@@ -6,10 +6,10 @@
 # bundle id, so it runs next to an installed Log without sharing settings or login items.
 set -e
 cd "$(dirname "$0")"
-VERSION=1.1.0
+VERSION=1.1.1
 if [ "$1" = release ]; then NAME=Log ID=work.bertbert.log SCHEME=log; else NAME="Log Dev" ID=work.bertbert.log.dev SCHEME=log-dev; fi
 APP="build/$NAME.app"
-rm -rf "$APP" build/Log.dmg && mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+rm -rf "$APP" build/Log.dmg build/Log.iconset build/dmg build/rw.dmg build/mnt && mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 for arch in arm64 x86_64; do
   swiftc -O -target "$arch-apple-macos15" Sources/*.swift -o "build/Log-$arch"
