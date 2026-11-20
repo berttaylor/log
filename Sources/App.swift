@@ -49,8 +49,10 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifica
             UNNotificationAction(identifier: "record", title: "Record"),
             UNNotificationAction(identifier: "ignore", title: "Never for This App"),
         ], intentIdentifiers: [])])
-        Hotkeys.register([(kVK_ANSI_R, { MainActor.assumeIsolated { self.toggleRecording() } }),
-                          (kVK_ANSI_M, { MainActor.assumeIsolated { self.mark() } })])
+        if !isDev {   // the installed app owns the shortcuts
+            Hotkeys.register([(kVK_ANSI_R, { MainActor.assumeIsolated { self.toggleRecording() } }),
+                              (kVK_ANSI_M, { MainActor.assumeIsolated { self.mark() } })])
+        }
         Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { _ in
             Task.detached {   // Core Audio queries stay off the main thread
                 let app = callApp(in: audioProcesses())
@@ -61,6 +63,15 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifica
             MainActor.assumeIsolated { self.stop(warning: "Stopped when the Mac went to sleep") }
         }
         update()
+        if !defaults.bool(forKey: "consentShown") {   // once, on first launch
+            defaults.set(true, forKey: "consentShown")
+            alert("Before you record", """
+                Log records your microphone and everything your Mac plays. Tell people when you're recording \
+                them, and only record calls you're allowed to: in many places everyone on the call has to agree.
+
+                "Copy Consent Message" in the menu puts a short note on the clipboard to paste into the call's chat.
+                """)
+        }
         // Finish any recording Log was killed in the middle of. The list is taken now, before a
         // new recording can start, so a live recording is never touched.
         let interrupted = interruptedRecordings(), missing = untranscribed()
@@ -147,7 +158,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifica
         case .idle:
             if let warning { add(warning); menu.addItem(.separator()) }
             if let app = call.app { add("Record This \(app) Call", #selector(recordCall)) }
-            add("Start Recording", #selector(startRecording), key: "r")
+            add("Start Recording", #selector(startRecording))
             let durations = submenu("Record For")
             for (title, mins) in [("30 Minutes", 30), ("1 Hour", 60), ("1½ Hours", 90), ("2 Hours", 120), ("2½ Hours", 150)] {
                 add(title, #selector(record), tag: mins, to: durations)
@@ -158,7 +169,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifica
             let what = rec?.screens == true ? "audio and screens" : "audio"
             if let app = rec?.app { add("Recording the \(app) call (\(what)) · stops when it ends") }
             else { add("Recording \(what) · \(clock ?? "")\(timed ? " left" : "")") }
-            add("Mark This Moment", #selector(mark), key: "m")
+            add("Mark This Moment", #selector(mark))
             add("Stop Recording", #selector(stopNow), key: "s")
         case .saving: add("Saving…")
         }
@@ -174,10 +185,11 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifica
         let settings = submenu("Settings")
         add("Capture Screens (1 frame a second)", state == .idle ? #selector(toggleScreens) : nil,
             on: defaults.bool(forKey: "captureScreens"), to: settings)
-        let mics = NSMenu(), chosen = defaults.string(forKey: "microphone")
+        let mics = NSMenu(), available = microphones()
+        let chosen = defaults.string(forKey: "microphone").flatMap { id in available.contains { $0.uniqueID == id } ? id : nil }
         add("Microphone", to: settings).submenu = mics
         add("Automatic (Built-in)", #selector(chooseMic), on: chosen == nil, to: mics)
-        for mic in microphones() { add(mic.localizedName, #selector(chooseMic), on: chosen == mic.uniqueID, object: mic.uniqueID, to: mics) }
+        for mic in available { add(mic.localizedName, #selector(chooseMic), on: chosen == mic.uniqueID, object: mic.uniqueID, to: mics) }
         add("Detect Calls", #selector(toggleDetect), on: defaults.bool(forKey: "detectCalls"), to: settings)
         if #available(macOS 26, *) { add("Write Transcripts", #selector(toggleTranscribe), on: defaults.bool(forKey: "transcribe"), to: settings) }
         add("Show Timer in Menu Bar", #selector(toggleTimer), on: defaults.bool(forKey: "showTimer"), to: settings)
@@ -219,7 +231,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifica
 
     @objc func startRecording() { record(minutes: callMinutes, timed: false) }
 
-    @objc func mark() { rec?.mark() }
+    @objc func mark() { if state == .recording { rec?.mark() } }
 
     @objc func toggleRecording() { state == .idle ? startRecording() : stop() }
 
@@ -230,15 +242,6 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifica
     /// Starts recording for at most `minutes`; with a call `app`, it also stops when that call ends.
     func record(minutes: Int, app: String? = nil, timed: Bool = true) {
         guard state == .idle else { return }
-        if !defaults.bool(forKey: "consentShown") {   // once, before the first recording
-            defaults.set(true, forKey: "consentShown")
-            alert("Before you record", """
-                Log records your microphone and everything your Mac plays. Tell people when you're recording \
-                them, and only record calls you're allowed to: in many places everyone on the call has to agree.
-
-                "Copy Consent Message" in the menu puts a short note on the clipboard to paste into the call's chat.
-                """)
-        }
         let free = freeGB()
         guard free >= minFreeGB else {
             return alert("Not enough disk space to record",

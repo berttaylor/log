@@ -76,14 +76,17 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sen
             if let error = await writer.finish(at: end) { failed = error }
         }
         q.sync { me.file = nil; them.file = nil }   // closes the raw audio files
-        if !marks.isEmpty, var meta = Meta.read(dir) { meta.marks = marks; try? meta.write(dir) }
         try await finish(dir)
         if let failed { throw failed }
     }
 
     var elapsed: Double { (hostNow() - start).seconds }
 
-    func mark() { q.sync { marks.append(elapsed.rounded()) } }
+    /// Saves a mark straight to meta.json, so it survives a crash too.
+    func mark() {
+        let all = q.sync { marks.append(elapsed.rounded()); return marks }
+        if var meta = Meta.read(dir) { meta.marks = all; try? meta.write(dir) }
+    }
 
     /// Sides of the call with no sound at all so far: a muted mic, or call audio going
     /// somewhere Log can't hear.
