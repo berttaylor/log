@@ -1,3 +1,4 @@
+import Accelerate
 import AVFoundation
 
 // A recording's folder:
@@ -29,34 +30,32 @@ struct Meta: Codable {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        try encoder.encode(self).write(to: Meta.url(dir))
+        try encoder.encode(self).write(to: Meta.url(dir), options: .atomic)
     }
 }
 
 /// Turns a recording's raw tracks into the finished files. Runs at stop, and again on launch
-/// for a recording Log was killed in the middle of. The raw tracks are deleted last, so an
-/// interrupted run can be repeated.
+/// for a recording Log was killed in the middle of. Every step rebuilds from the raw tracks,
+/// which are deleted last, so an interrupted run can simply be repeated.
 func finish(_ dir: URL) async throws {
     let tracks = dir.appendingPathComponent("tracks")
-    let me = tracks.appendingPathComponent("me.caf"), them = tracks.appendingPathComponent("them.caf")
-    let raw = [me, them].filter(exists)
-    let call = dir.appendingPathComponent("Call.m4a")
+    let raw = ["me.caf", "them.caf"].map(tracks.appendingPathComponent).filter(exists)
+    for file in raw { try encode(file, to: file.deletingPathExtension().appendingPathExtension("m4a")) }
+    let call = dir.appendingPathComponent("Call.m4a"), video = dir.appendingPathComponent("Call.mp4")
     if !raw.isEmpty { try mix(raw, to: call) }
     let screens = (try FileManager.default.contentsOfDirectory(at: tracks, includingPropertiesForKeys: nil))
-        .filter { $0.pathExtension == "mov" }.sorted { $0.lastPathComponent < $1.lastPathComponent }
-    if !screens.isEmpty, exists(call) {
-        try await composite(screens: screens, audio: call, to: dir.appendingPathComponent("Call.mp4"))
+        .filter { $0.pathExtension == "mov" }
+        .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+    if !screens.isEmpty, exists(call), try await composite(screens: screens, audio: call, to: video) {
         try FileManager.default.removeItem(at: call)
     }
-    for file in raw {
-        try encode(file, to: file.deletingPathExtension().appendingPathExtension("m4a"))
-        try FileManager.default.removeItem(at: file)
-    }
     var meta = Meta.read(dir) ?? Meta(started: (try? dir.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? Date())
-    let main = [dir.appendingPathComponent("Call.mp4"), call].first(where: exists)
+    let main = [video, call].first(where: exists)
     if let main { meta.duration = try await AVURLAsset(url: main).load(.duration).seconds.rounded() }
-    meta.files = FileManager.default.subpaths(atPath: dir.path)?.filter { !$0.hasPrefix(".") && $0 != "tracks" && $0 != "meta.json" }.sorted()
+    meta.files = FileManager.default.subpaths(atPath: dir.path)?
+        .filter { !$0.hasPrefix(".") && !$0.hasSuffix(".caf") && $0 != "tracks" && $0 != "meta.json" }.sorted()
     try meta.write(dir)
+    for file in raw { try FileManager.default.removeItem(at: file) }
 }
 
 /// Recordings Log was killed in the middle of: they still have raw tracks. Oldest first.
@@ -83,6 +82,7 @@ func encode(_ src: URL, to dst: URL) throws {
 func mix(_ inputs: [URL], to out: URL) throws {
     let files = try inputs.map(AVAudioFile.init(forReading:))
     let format = files[0].processingFormat
+    guard files.allSatisfy({ $0.processingFormat.sampleRate == format.sampleRate }) else { throw CocoaError(.fileReadCorruptFile) }
     let output = try AVAudioFile(forWriting: out, settings: aac(rate: format.sampleRate, channels: 1))
     let chunk: AVAudioFrameCount = 48_000
     let buffers = files.map { AVAudioPCMBuffer(pcmFormat: $0.processingFormat, frameCapacity: chunk)! }
@@ -97,26 +97,28 @@ func mix(_ inputs: [URL], to out: URL) throws {
         let dst = sum.floatChannelData![0]
         dst.update(repeating: 0, count: Int(chunk))
         for buf in buffers {   // a shorter track just stops adding
-            for i in 0..<Int(buf.frameLength) { dst[i] = min(1, max(-1, dst[i] + buf.floatChannelData![0][i])) }
+            vDSP_vadd(dst, 1, buf.floatChannelData![0], 1, dst, 1, vDSP_Length(buf.frameLength))
         }
+        var low: Float = -1, high: Float = 1
+        vDSP_vclip(dst, 1, &low, &high, dst, 1, vDSP_Length(sum.frameLength))
         try output.write(from: sum)
     }
 }
 
 /// Puts every screen side by side, at native size and top-aligned, in one video with the call
 /// audio, so nothing is cropped or hidden. The row is scaled down only past 8192 pixels wide,
-/// the HEVC limit. Frames stay at one a second.
-func composite(screens: [URL], audio: URL, to out: URL) async throws {
+/// the HEVC limit. Frames stay at one a second. Unreadable screens are left out; returns false
+/// if none could be read.
+func composite(screens: [URL], audio: URL, to out: URL) async throws -> Bool {
     let comp = AVMutableComposition()
     let assets = screens.map { AVURLAsset(url: $0) }, audioAsset = AVURLAsset(url: audio)   // must outlive the export
     var placed: [(AVMutableCompositionTrack, CGFloat)] = []
     var width: CGFloat = 0, height: CGFloat = 0
     for asset in assets {
-        guard let src = try await asset.loadTracks(withMediaType: .video).first,
+        guard let src = try? await asset.loadTracks(withMediaType: .video).first,
+              let (range, size) = try? await src.load(.timeRange, .naturalSize), size.width > 0,
               let track = comp.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else { continue }
-        let range = try await src.load(.timeRange)
-        try track.insertTimeRange(range, of: src, at: range.start)
-        let size = try await src.load(.naturalSize)
+        do { try track.insertTimeRange(range, of: src, at: range.start) } catch { comp.removeTrack(track); continue }
         placed.append((track, width))
         width += size.width; height = max(height, size.height)
     }
@@ -124,6 +126,7 @@ func composite(screens: [URL], audio: URL, to out: URL) async throws {
        let track = comp.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) {
         try track.insertTimeRange(try await src.load(.timeRange), of: src, at: .zero)
     }
+    guard !placed.isEmpty else { return false }
     let scale = min(1, 8192 / width)
     let instruction = AVMutableVideoCompositionInstruction()
     instruction.timeRange = CMTimeRange(start: .zero, duration: comp.duration)
@@ -142,4 +145,5 @@ func composite(screens: [URL], audio: URL, to out: URL) async throws {
     export.videoComposition = video
     try? FileManager.default.removeItem(at: out)   // a repeated, interrupted run may have left one
     try await export.export(to: out, as: .mp4)
+    return true
 }
