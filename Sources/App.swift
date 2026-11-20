@@ -30,6 +30,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifica
     var endsAt = Date.distantPast
     var rec: Recorder?
     var saving: Task<Void, Never>?
+    var transcribing: Task<Void, Never>?   // transcripts run one at a time, chained on this
     var last: URL?
     var warning: String?
     /// The call app using the mic right now, and since when. Polled every 3 seconds.
@@ -49,9 +50,10 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifica
             UNNotificationAction(identifier: "record", title: "Record"),
             UNNotificationAction(identifier: "ignore", title: "Never for This App"),
         ], intentIdentifiers: [])])
-        if !isDev {   // the installed app owns the shortcuts
-            Hotkeys.register([(kVK_ANSI_R, { MainActor.assumeIsolated { self.toggleRecording() } }),
-                              (kVK_ANSI_M, { MainActor.assumeIsolated { self.mark() } })])
+        let shortcuts: [(Int, () -> Void)] = [(kVK_ANSI_R, { MainActor.assumeIsolated { self.toggleRecording() } }),
+                                              (kVK_ANSI_M, { MainActor.assumeIsolated { self.mark() } })]
+        if !isDev, !Hotkeys.register(shortcuts) {   // the installed app owns the shortcuts
+            warning = "⌃⌥⌘R or ⌃⌥⌘M is already used by another app"
         }
         Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { _ in
             Task.detached {   // Core Audio queries stay off the main thread
@@ -203,10 +205,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifica
     }
 
     /// The five newest recordings.
-    func recentRecordings() -> [URL] {
-        let dirs = (try? FileManager.default.contentsOfDirectory(at: library, includingPropertiesForKeys: nil)) ?? []
-        return Array(dirs.filter { exists(Meta.url($0)) }.sorted { $0.lastPathComponent > $1.lastPathComponent }.prefix(5))
-    }
+    func recentRecordings() -> [URL] { Array(recordings(test: false).reversed().prefix(5)) }
 
     /// "20 Nov, 14:30 · Zoom · 43 min"
     func title(of dir: URL) -> String {
@@ -263,14 +262,24 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifica
         let free = freeGB()
         guard free >= minFreeGB else {
             return alert("Not enough disk space to record",
-                         String(format: "Only %.1f GB free. Log needs at least %.0f GB. Free some space and try again.", free, minFreeGB))
+                         String(format: "Only %.1f GB free. %@ needs at least %.0f GB. Free some space and try again.", free, name, minFreeGB))
         }
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd_HH-mm-ss"
         let folder = f.string(from: Date()) + (app.map { " " + $0 } ?? "")
-        let r = Recorder(dir: library.appendingPathComponent(folder), screens: defaults.bool(forKey: "captureScreens"),
+        var dir = library.appendingPathComponent(folder)
+        var n = 1
+        while exists(dir) { n += 1; dir = library.appendingPathComponent("\(folder) \(n)") }   // never reuse a folder
+        let r = Recorder(dir: dir, screens: defaults.bool(forKey: "captureScreens"),
                          app: app, mic: defaults.string(forKey: "microphone"))
-        r.onError = { error in Task { @MainActor in self.stop(warning: "Stopped early: \(error.localizedDescription)") } }
+        r.onError = { error in
+            Task { @MainActor in
+                let message = "Stopped early: \(error.localizedDescription)"
+                self.warning = message   // shows even if capture fails while still starting
+                self.stop(warning: message)
+            }
+        }
+        r.onScreenLost = { Task { @MainActor in self.warning = "A screen stopped recording; audio carries on" } }
         rec = r; state = .starting; warning = nil; offered = true; self.timed = timed; update()
         UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: ["call"])
         Task {
@@ -283,7 +292,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifica
                 try? FileManager.default.removeItem(at: r.dir)
                 rec = nil; state = .idle
                 alert("Couldn't start recording", """
-                    Allow Log in System Settings > Privacy & Security, under both Microphone and \
+                    Allow \(name) in System Settings > Privacy & Security, under both Microphone and \
                     Screen & System Audio Recording, then try again.
 
                     \(error.localizedDescription)
@@ -306,7 +315,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifica
         }
         guard state == .recording else { return }
         if endsAt.timeIntervalSinceNow <= 0 { stop() }
-        else if rec?.app != nil, call.app == nil, lasted >= 30 { stop() }   // the call ended (30 s rides out a muted mic)
+        else if rec?.app != nil, defaults.bool(forKey: "detectCalls"), call.app == nil, lasted >= 30 { stop() }   // the call ended (30 s rides out a muted mic)
         // No pop-up mid-call (it could appear on a shared screen): stop and flag it in the menu.
         else if freeGB() < minFreeGB { stop(warning: String(format: "Stopped early: less than %.0f GB of disk left", minFreeGB)) }
         else {
@@ -340,9 +349,15 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifica
     /// Writes transcripts one after another after saving, so they never hold up the next recording.
     func transcribeInBackground(_ dirs: [URL]) {
         guard #available(macOS 26, *), defaults.bool(forKey: "transcribe"), !dirs.isEmpty else { return }
-        Task.detached(priority: .utility) {
+        let previous = transcribing
+        transcribing = Task.detached(priority: .utility) {
+            await previous?.value
             for dir in dirs {
-                do { try await transcribe(dir) } catch { await self.notify("Couldn't write the transcript", error.localizedDescription) }
+                do { try await transcribe(dir) } catch {
+                    // Say why in place of the transcript, so it isn't retried on every launch.
+                    try? "# No transcript\n\n\(error.localizedDescription)\n".write(to: dir.appendingPathComponent("transcript.md"), atomically: true, encoding: .utf8)
+                    await self.notify("Couldn't write the transcript", error.localizedDescription)
+                }
             }
         }
     }

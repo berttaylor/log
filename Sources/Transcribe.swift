@@ -64,23 +64,26 @@ func transcribe(_ dir: URL) async throws {
 func speech(in url: URL, speaker: String, locale: Locale) async -> [Line] {
     guard let file = try? AVAudioFile(forReading: url) else { return [] }
     let transcriber = SpeechTranscriber(locale: locale, transcriptionOptions: [], reportingOptions: [], attributeOptions: [.audioTimeRange])
-    let lines = Task {
-        try await transcriber.results.reduce(into: [Line]()) { lines, r in
-            let text = String(r.text.characters).trimmingCharacters(in: .whitespaces)
-            if !text.isEmpty { lines.append(Line(start: r.range.start.seconds, end: r.range.end.seconds, speaker: speaker, text: text)) }
-        }
+    let lines = Task {   // keeps what arrived if the stream fails part-way
+        var lines: [Line] = []
+        do {
+            for try await r in transcriber.results {
+                let text = String(r.text.characters).trimmingCharacters(in: .whitespaces)
+                if !text.isEmpty { lines.append(Line(start: r.range.start.seconds, end: r.range.end.seconds, speaker: speaker, text: text)) }
+            }
+        } catch {}
+        return lines
     }
     defer { lines.cancel() }
     let analyzer = SpeechAnalyzer(modules: [transcriber])   // must live until the results end
     do { try await analyzer.start(inputAudioFile: file, finishAfterFile: true) } catch { return [] }
-    let result = (try? await lines.value) ?? []
+    let result = await lines.value
     withExtendedLifetime(analyzer) {}
     return result
 }
 
 /// Saved recordings without a transcript, for example because Log quit while writing it.
 func untranscribed() -> [URL] {
-    let dirs = (try? FileManager.default.contentsOfDirectory(at: library, includingPropertiesForKeys: nil)) ?? []
     let unfinished = Set(interruptedRecordings())
-    return dirs.filter { exists(Meta.url($0)) && !exists($0.appendingPathComponent("transcript.md")) && !unfinished.contains($0) }
+    return recordings(test: false).filter { !exists($0.appendingPathComponent("transcript.md")) && !unfinished.contains($0) }
 }
