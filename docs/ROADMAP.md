@@ -19,7 +19,8 @@ Built and merged (PRs #1 to #7):
 | M11 one file to watch | Done: `Call.mp4` (every display side by side, HEVC) or `Call.m4a`, separate sources in `tracks/`. |
 | Extras from rivals | Marks during a call (⌃⌥⌘M, menu, `log://mark`) saved in `meta.json` and the transcript; ⌃⌥⌘R to start and stop; Start Recording, which runs until stopped (4 h cap); Copy Last Call for AI. |
 | L4 summaries | Decided against. Apple's on-device model, tested on a sample call, took 29 s, swapped who owed which action and missed two of six action items. Copy Last Call for AI hands the transcript to a better model instead. |
-| L1, L2, L3, L5, L6, L7 | Not started. L2 (per-app capture) is risky: FaceTime audio plays through a system service, not the app. |
+| L1 audio-only taps | Tried and shelved. A Core Audio tap in a private aggregate device only delivers buffers while something is playing, so a mic in the same device goes silent too; moving the mic to its own AVAudioEngine input fixed that, but back-to-back test runs still lost one side about one time in three. ScreenCaptureKit stays the only capture path until taps can pass the same 5-in-a-row and `kill -9` tests. |
+| L2, L3, L5, L6, L7 | Not started. L2 (per-app capture) is risky: FaceTime audio plays through a system service, not the app. |
 
 See [FEATURES.md](FEATURES.md) for the key feature rating against rivals. The plan below is the original research; where names differ (`screen-N.mp4`, `log://start`), the shipped names in the README win.
 
