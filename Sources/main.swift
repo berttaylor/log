@@ -7,7 +7,22 @@
 // Build: ./build.sh. From a terminal ("build/Log Dev.app/Contents/MacOS/Log"):
 //   --test <seconds> [screens]   records, stops and prints the folder
 //   --recover                    finishes recordings that were interrupted, prints their folders
+//   --check                      runs the self-checks and lists apps using audio right now
 import AppKit
+
+/// Self-checks for logic that can be tested without capturing anything.
+func check() {
+    func p(_ id: String, input: Bool = true, output: Bool = false) -> AudioProcess { AudioProcess(bundleID: id, input: input, output: output) }
+    precondition(callApp(in: [p("us.zoom.xos")]) == "Zoom")
+    precondition(callApp(in: [p("com.electron.wispr-flow")]) == nil, "dictation is not a call")
+    precondition(callApp(in: [p("com.apple.replayd")]) == nil, "Log's own capture is not a call")
+    precondition(callApp(in: [p("com.google.Chrome.helper")]) == nil, "browser dictation is not a call")
+    precondition(callApp(in: [p("com.google.Chrome.helper"), p("com.google.Chrome.helper.renderer", input: false, output: true)]) == "Chrome")
+    precondition(callApp(in: [p("us.zoom.xos", input: false, output: true)]) == nil, "playing sound alone is not a call")
+    print("checks passed")
+    for p in audioProcesses() where p.input || p.output { print(p.bundleID.isEmpty ? "(no bundle id)" : p.bundleID, p.input ? "mic" : "", p.output ? "playing" : "") }
+    print("call app:", callApp(in: audioProcesses()) ?? "none")
+}
 
 /// Records to <library>/test, stops, prints the folder.
 func test(seconds: Double, screens: Bool) {
@@ -31,6 +46,7 @@ MainActor.assumeIsolated {
     var delegate: App?
     switch args.first {
     case "--test": test(seconds: Double(args.dropFirst().first ?? "") ?? 5, screens: args.contains("screens"))
+    case "--check": check(); exit(0)
     case "--recover":
         Task {
             for dir in interruptedRecordings() { print(dir.path, (try? await finish(dir)) == nil ? "failed" : "recovered") }
