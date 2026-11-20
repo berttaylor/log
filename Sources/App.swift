@@ -96,7 +96,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifica
     }
 
     /// Automation, for Shortcuts, Raycast, scripts or a keyboard shortcut (the dev build uses log-dev://):
-    ///   log://record?minutes=60   log://record-call   log://mark   log://stop   log://show
+    ///   log://record?minutes=60   log://record-call   log://mark   log://stop   log://show   log://copy-for-ai
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls {
             switch url.host {
@@ -107,6 +107,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifica
             case "stop": stop()
             case "mark": mark()
             case "show": showRecordings()
+            case "copy-for-ai": copyForAI()
             default: break
             }
         }
@@ -180,6 +181,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifica
             for dir in recent { add(title(of: dir), #selector(reveal), object: dir, to: list) }
         }
         add("Show Recordings", #selector(showRecordings))
+        if latestTranscript() != nil { add("Copy Last Call for AI", #selector(copyForAI)) }
         add("Copy Consent Message", #selector(copyConsent))
         menu.addItem(.separator())
         let settings = submenu("Settings")
@@ -222,9 +224,26 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifica
 
     static let consent = "Just so you know, I'm recording this call so I can go back over it later. Let me know if you'd rather I didn't."
 
-    @objc func copyConsent() {
+    @objc func copyConsent() { copy(App.consent) }
+
+    /// The newest transcript with a prompt, to paste into any AI chat. A large model summarises
+    /// far better than the small one on this Mac, and works in any language.
+    @objc func copyForAI() {
+        guard let url = latestTranscript(), let transcript = try? String(contentsOf: url, encoding: .utf8) else { return }
+        copy("""
+            Here is the transcript of a call I recorded. "Me" is me and "Them" is everyone else; ⚑ marks moments \
+            I flagged as important. Summarise the call, list the decisions and the action items (who, what, by \
+            when), and point out anything I should follow up on.
+            """ + "\n\n" + transcript)
+    }
+
+    func latestTranscript() -> URL? {
+        recentRecordings().lazy.map { $0.appendingPathComponent("transcript.md") }.first(where: exists)
+    }
+
+    func copy(_ text: String) {
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(App.consent, forType: .string)
+        NSPasteboard.general.setString(text, forType: .string)
     }
 
     @objc func chooseMic(_ sender: NSMenuItem) { defaults.set(sender.representedObject as? String, forKey: "microphone") }

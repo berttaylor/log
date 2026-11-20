@@ -48,6 +48,8 @@ Turn on **Capture Screens** (under **Settings**) and Log also records every disp
 
 **Mark moments.** Press **⌃⌥⌘M** (or **Mark This Moment** in the menu) when something matters. Marks are saved in `meta.json` and show up in the transcript as **⚑ 12:04 marked**, so you or an agent can jump straight to them.
 
+**Hand it to AI.** **Copy Last Call for AI** puts the newest transcript on the clipboard with a prompt asking for a summary, decisions and action items. Paste it into Claude, ChatGPT or any other chatbot. A large model does this far better than anything that fits on a laptop.
+
 **Asking first.** **Copy Consent Message** puts a short note on the clipboard to paste into the call's chat: *"Just so you know, I'm recording this call so I can go back over it later. Let me know if you'd rather I didn't."*
 
 While recording, the icon fills in. Nothing else changes, so it gives nothing away if you're sharing your screen. **Show Timer in Menu Bar** adds a clock.
@@ -60,6 +62,7 @@ open "log://record-call"         # record the call that's happening now, until i
 open "log://mark"                # mark this moment
 open "log://stop"
 open "log://show"                # open the latest recording
+open "log://copy-for-ai"         # copy the latest transcript with a prompt
 ```
 
 Each recording gets its own folder:
@@ -90,6 +93,10 @@ Some details:
 - **Safe with your disk.** Log won't start with less than 5 GB free, and it stops and saves if space drops below that during a call.
 - **Safe when things go wrong.** Quitting, logging out, shutting down or putting the Mac to sleep mid-call saves everything recorded so far. If Log crashes or the Mac loses power, Log finishes the recording the next time it opens.
 - **Settings.** Capture Screens, Microphone, Detect Calls, Write Transcripts, Show Timer in Menu Bar and Open at Login (off until you turn it on) are under **Settings** in the menu.
+
+## Compared with other recorders
+
+See the [key feature rating](docs/FEATURES.md) for how Log compares with Granola, Otter, Fathom, Krisp, MacWhisper, Audio Hijack and others.
 
 ## Install
 
