@@ -1,6 +1,6 @@
 # Log
 
-macOS menu bar app that records both sides of a call. All app code is in `Log.swift`. `build.sh` builds the app; there is no Xcode project and there are no dependencies.
+macOS menu bar app that records both sides of a call. App code is in `Sources/`: `main.swift` (entry point, terminal modes), `App.swift` (menu bar UI and state), `Recorder.swift` (capture), `Files.swift` (turning raw captures into finished files). `build.sh` builds the app; there is no Xcode project and there are no dependencies.
 
 The competitive analysis, feature spec (M1-M11, L1-L7) and release plan are in `docs/ROADMAP.md`. Build features in its release order, and keep to its "what not to build" list.
 
@@ -15,7 +15,8 @@ The owner runs the released Log from /Applications every day while developing in
 
 ## Testing
 
-- `"build/Log Dev.app/Contents/MacOS/Log" --test 5 screens` records 5 seconds to `~/Downloads/Log Dev/test/` and prints the folder. It needs Microphone and Screen & System Audio Recording permission for the terminal app.
+- Build, then run `"build/Log Dev.app/Contents/MacOS/Log" --test 5 screens` records 5 seconds to `~/Downloads/Log Dev/test/` and prints the folder. It needs Microphone and Screen & System Audio Recording permission for the terminal app.
+- Crash safety: start `--test 60 screens` in the background, `kill -9` it after ~20 s, then run `--recover`. The `.caf` tracks and `.mov` screens must still play, and `--recover` must produce the `.m4a` files.
 - Check audio with `afinfo` or `ffprobe`. In `call.m4a`, the left channel is `me.m4a` and the right is `them.m4a`.
 - The menu bar UI can't be checked from the terminal: ask the owner to look.
 
@@ -26,3 +27,7 @@ The owner runs the released Log from /Applications every day while developing in
 3. `gh release create vX.Y.Z build/Log.dmg -R berttaylor/log --title "Log X.Y.Z" --notes "..."`
 
 The README links to `releases/latest/download/Log.dmg`, so the asset must keep that name. Builds are ad-hoc signed, not notarized. The README's install steps explain "Open Anyway".
+
+## Workflow
+
+Each roadmap item ships as its own branch and PR: build, run the terminal tests, then review (simplify and caveman review) before merging to `main`. Every PR updates the README when behaviour changes. The dev build shows "dev" next to its menu bar icon.

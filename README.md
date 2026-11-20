@@ -55,8 +55,8 @@ Each recording gets its own folder:
   me.m4a         your microphone
   them.m4a       everything your Mac played
   call.m4a       both together: you on the left, them on the right
-  screen-1.mp4   each display at one frame a second (if Capture Screens is on)
-  screen-2.mp4
+  screen-1.mov   each display at one frame a second (if Capture Screens is on)
+  screen-2.mov
 ```
 
 Some details:
@@ -64,7 +64,7 @@ Some details:
 - **Built-in mic first.** If your Mac has a built-in mic, Log uses it even when AirPods are connected. Recording from AirPods switches them to a lower-quality call mode, which would make the call sound worse for you.
 - **Screens stay readable.** Each display is recorded at its full resolution, up to 2560 pixels wide. One frame a second is enough to follow slides, code and documents, and it keeps an hour of video small.
 - **Safe with your disk.** Log won't start with less than 5 GB free, and it stops and saves if space drops below that during a call.
-- **Safe when you quit.** Quitting, logging out or shutting down mid-call still saves everything recorded so far.
+- **Safe when things go wrong.** Quitting, logging out, shutting down or putting the Mac to sleep mid-call saves everything recorded so far. If Log crashes or the Mac loses power, Log finishes the recording the next time it opens.
 - **Open at login** is off until you turn it on in the menu.
 
 ## Install
@@ -81,7 +81,7 @@ xattr -dr com.apple.quarantine /Applications/Log.app
 
 ## Build from source
 
-You need macOS 15 or later and the Xcode command line tools (`xcode-select --install`). The app is one Swift file with no dependencies.
+You need macOS 15 or later and the Xcode command line tools (`xcode-select --install`). The app is a few Swift files in `Sources/` with no dependencies.
 
 ```sh
 git clone https://github.com/berttaylor/log.git
